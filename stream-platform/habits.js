@@ -6,9 +6,11 @@
 //   "link" (URL) or "text" (pasted work). The first type is the default.
 // fields: the "what did you do" details stored with each check-in.
 // summary(details): one-line recap shown in the log.
+// skill + sub: the community (SKILLS id in skills.js) and subtopic that check-ins are shared
+//   to by default. Users can pick another community, or none, per commitment.
 const HABITS = [
   {
-    id: "gym", name: "The Gym", hue: 0, skill: "fitness",
+    id: "gym", name: "The Gym", hue: 0, skill: "fitness", sub: "Weightlifting",
     tagline: "Show up and train, even on the days you don't feel like it.",
     verb: "go to the gym",
     example: "Every weekday, I will go to the gym at 7:00 AM.",
@@ -30,7 +32,7 @@ const HABITS = [
     reflect: "How did it feel? Any PRs, or anything that felt off?",
   },
   {
-    id: "poetry", name: "Writing Poetry", hue: 25, skill: "writing",
+    id: "poetry", name: "Writing Poetry", hue: 25, skill: "writing", sub: "Creative Writing",
     tagline: "One poem a session. Finished beats perfect.",
     verb: "write a poem",
     example: "Every night, I will write a poem at 9:30 PM.",
@@ -51,7 +53,7 @@ const HABITS = [
     reflect: "What were you trying to say? What would you change in the next draft?",
   },
   {
-    id: "reading", name: "Reading a Book", hue: 265, skill: "reading",
+    id: "reading", name: "Reading a Book", hue: 265, skill: "reading", sub: "Reading More Often",
     tagline: "A few pages a day adds up to a shelf a year.",
     verb: "read",
     example: "Every day, I will read 20 pages at 10:00 PM.",
@@ -97,6 +99,45 @@ const HABITS = [
 const habitById = (id) => HABITS.find((h) => h.id === id);
 
 const PROOF_LABELS = { photo: "Photo", link: "Link", text: "Paste it" };
+
+/* ---------- Communities ---------- */
+
+const communityById = (id) => (id ? SKILLS.find((s) => s.id === id) || null : null);
+
+// The community a commitment shares to: its saved choice ("none" = private), else the habit's default.
+const commitmentCommunity = (c) =>
+  c.community === "none" ? null : communityById(c.community) || communityById(habitById(c.habit)?.skill);
+
+// Subtopic for a habit's posts in community `s`: the habit's own when it's that community's.
+const communitySub = (h, s) => (h.skill === s.id && s.subs.includes(h.sub) ? h.sub : s.subs[0]);
+
+// Adds a check-in to a community's progress feed. Community posts are browser-local
+// (localStorage "tbl.learn.v1", owned by communities.js), so this writes the same shape.
+// Joins the community too. Returns false if browser storage is unavailable or full.
+function shareToCommunity(h, communityId, checkin, photo) {
+  const s = communityById(communityId);
+  if (!s) return false;
+  const KEY = "tbl.learn.v1";
+  try {
+    const st = JSON.parse(localStorage.getItem(KEY) || "null") || { posts: [], joined: [], requests: [], real: true };
+    st.posts ??= [];
+    st.joined ??= [];
+    const proof = checkin.proofType === "text" || checkin.proofType === "link" ? checkin.proof : "";
+    const body = [h.summary(checkin.details), proof, checkin.reflection].filter(Boolean).join("\n\n").slice(0, 4000);
+    st.posts.unshift({
+      id: Math.random().toString(36).slice(2, 10), kind: "progress", skill: s.id, sub: communitySub(h, s),
+      title: null, body, minutes: Number(checkin.details.minutes) || null,
+      media: photo ? [{ type: "image", label: `${h.name} proof`, src: photo }] : [],
+      strava: null, comments: [], likes: 0, liked: false, user: "You", hue: 28, t: Date.now(),
+      habit: h.id, checkinId: checkin.id,
+    });
+    if (!st.joined.includes(s.id)) st.joined.push(s.id);
+    localStorage.setItem(KEY, JSON.stringify(st));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /* ---------- Formatting ---------- */
 
@@ -185,24 +226,6 @@ async function meApi(path, { method = "GET", body } = {}) {
   return data;
 }
 
-// Images are downscaled to JPEG data URLs before upload.
-function downscale(file, max = 1280) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const im = new Image();
-    im.onload = () => {
-      const k = Math.min(1, max / Math.max(im.width, im.height));
-      const cv = document.createElement("canvas");
-      cv.width = Math.round(im.width * k);
-      cv.height = Math.round(im.height * k);
-      cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height);
-      URL.revokeObjectURL(url);
-      resolve(cv.toDataURL("image/jpeg", 0.82));
-    };
-    im.onerror = () => (URL.revokeObjectURL(url), reject(new Error("That file isn't an image we can read.")));
-    im.src = url;
-  });
-}
 
 /* ---------- Phone reminders: phone + code form ---------- */
 

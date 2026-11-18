@@ -857,39 +857,27 @@ main.addEventListener("input", (e) => {
   $("#communityGrid").innerHTML = communityGridHTML();
 });
 
-// Images are downscaled to JPEG data URLs so they fit in localStorage.
-function downscale(file, max = 1280) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const im = new Image();
-    im.onload = () => {
-      const k = Math.min(1, max / Math.max(im.width, im.height));
-      const cv = document.createElement("canvas");
-      cv.width = Math.round(im.width * k);
-      cv.height = Math.round(im.height * k);
-      cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height);
-      URL.revokeObjectURL(url);
-      resolve(cv.toDataURL("image/jpeg", 0.82));
-    };
-    im.onerror = () => (URL.revokeObjectURL(url), reject(new Error("bad image")));
-    im.src = url;
-  });
-}
-
 $("#mediaInput").addEventListener("change", async (e) => {
   const all = [...e.target.files];
   e.target.value = "";
   const files = all.slice(0, MAX_MEDIA - draft.media.length);
   if (files.length < all.length) toast(`Only ${MAX_MEDIA} photos or videos per post.`);
   for (const f of files) {
-    if (f.type.startsWith("image/")) {
+    if (isImageFile(f)) {
       try {
         draft.media.push({ type: "image", label: f.name, src: await downscale(f) });
-      } catch {
-        toast(`Couldn't read ${f.name}`);
+      } catch (err) {
+        toast(`Couldn't read ${f.name}. ${err.message}`);
       }
-    } else if (f.type.startsWith("video/")) {
-      draft.media.push({ type: "video", label: f.name, src: URL.createObjectURL(f), session: true });
+    } else if (isVideoFile(f)) {
+      const src = URL.createObjectURL(f);
+      try {
+        await checkVideo(src);
+        draft.media.push({ type: "video", label: f.name, src, session: true });
+      } catch (err) {
+        URL.revokeObjectURL(src);
+        toast(err.message);
+      }
     }
   }
   refreshAttachments();

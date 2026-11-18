@@ -9,11 +9,12 @@
 //   POST   /api/me/phone            { phone } → sends a verification code (via lib/messaging)
 //   POST   /api/me/phone/verify     { code } → turns phone reminders on
 //   DELETE /api/me/phone            turn phone reminders off
-import { HttpError, bad, json, str, requireUser, readBody, handler } from "../lib/http.js";
+import { HttpError, bad, json, str, requireUser, readBody, handler, fileResponse } from "../lib/http.js";
 import { randomUUID } from "node:crypto";
 import { pool } from "../lib/db.js";
 import { storage } from "../lib/storage/index.js";
 import { isHabit, isTimeZone } from "../lib/habits.js";
+import { isCommunity } from "../lib/communities.js";
 import { phone as channel, toE164 } from "../lib/messaging/index.js";
 import { startVerification, confirmVerification, windowOpen } from "../lib/bot.js";
 
@@ -80,7 +81,7 @@ function parseCommitment(c) {
   if (!REMIND_OPTIONS.includes(remindBefore)) bad("Invalid reminder time.");
   // A SKILLS id from stream-platform/skills.js, or "none" to keep check-ins private.
   const community = c.community == null || c.community === "" ? null : String(c.community);
-  if (community !== null && !/^[a-z][a-z0-9-]{0,40}$/.test(community)) bad("Unknown community.");
+  if (community !== null && community !== "none" && !isCommunity(community)) bad("Unknown community.");
   return { habit, statement, days, time: c.time, timezone: c.timezone, remindBefore, community };
 }
 
@@ -214,14 +215,7 @@ async function proofImage(user, id) {
     `select proof, proof_storage from habit_checkin
      where id = $1 and user_id = $2 and proof_type = 'photo'`, [id, user.id]);
   if (!rows[0]) throw new HttpError(404, "Not found.");
-  const file = await storage.open(rows[0].proof_storage, rows[0].proof);
-  if (file.redirect) {
-    // Signed links last an hour; let the browser reuse this redirect for a few minutes.
-    return new Response(null, { status: 302, headers: { location: file.redirect, "cache-control": "private, max-age=300" } });
-  }
-  return new Response(file.bytes, {
-    headers: { "content-type": file.contentType, "cache-control": "private, max-age=31536000, immutable" },
-  });
+  return fileResponse(await storage.open(rows[0].proof_storage, rows[0].proof));
 }
 
 /* ---------- Phone reminders ---------- */

@@ -32,33 +32,55 @@ create table if not exists habit_checkin (
   created_at  timestamptz not null default now()
 );
 create index if not exists habit_checkin_user_day on habit_checkin (user_id, day desc);
+-- Where a photo proof's file lives (a lib/storage provider id, e.g. "supabase"); `proof` then
+-- holds that provider's ref. Null on old rows = stored inline in `proof` as a data URL.
+alter table habit_checkin add column if not exists proof_storage text;
 
--- Phone number that reminders are texted to (via Linq). Reminders go out only while
--- verified_at is set; PAUSE/STOP clear it.
+-- WhatsApp number that reminders go to (via Bird). Reminders go out only while verified_at
+-- is set; PAUSE/STOP clear it. Codes are sent and checked by Bird Verify.
 create table if not exists phone_link (
-  user_id       text primary key references "user"(id) on delete cascade,
-  phone         text not null,                     -- E.164, e.g. +15551234567
-  verified_at   timestamptz,
-  code_hash     text,                              -- sha256 of the pending 6-digit code
-  code_sent_at  timestamptz,
-  code_attempts smallint not null default 0
+  user_id         text primary key references "user"(id) on delete cascade,
+  phone           text not null,                   -- E.164, e.g. +15551234567
+  verified_at     timestamptz,
+  code_sent_at    timestamptz,
+  verify_pending  boolean not null default false,  -- a code was sent and not yet confirmed
+  last_inbound_at timestamptz                      -- their last message to us; opens WhatsApp's 24 h window
 );
--- One account per verified number (inbound texts are matched by number).
+-- Columns from the earlier SMS version (codes were checked here, not by Bird Verify).
+alter table phone_link add column if not exists verify_pending boolean not null default false;
+alter table phone_link add column if not exists last_inbound_at timestamptz;
+alter table phone_link drop column if exists code_hash;
+alter table phone_link drop column if exists code_attempts;
+-- One account per verified number (inbound messages are matched by number).
 create unique index if not exists phone_link_verified_phone on phone_link (phone) where verified_at is not null;
 
--- Linq delivers webhooks at least once; remember event ids so a retry isn't handled twice.
+-- Webhooks are delivered at least once; remember ids so a retry isn't handled twice.
 create table if not exists webhook_event (
   id          text primary key,
   received_at timestamptz not null default now()
 );
 
--- Replaced by phone_link (reminders moved from Telegram to Linq).
+-- Replaced by phone_link (reminders moved off Telegram).
 drop table if exists telegram_link;
 
 -- Last time each background piece ran (see lib/heartbeat.js), shown on the admin dashboard:
--- reminders_tick, linq_webhook, linq_send, linq_send_error.
+-- reminders_tick, whatsapp_webhook, whatsapp_send, whatsapp_send_error, ….
 create table if not exists app_heartbeat (
   key    text primary key,
   at     timestamptz not null,
   detail jsonb not null default '{}'
+);
+
+-- Strava connection (lib/strava.js). Tokens are AES-GCM encrypted with a key derived from
+-- BETTER_AUTH_SECRET. One app account per Strava athlete (webhooks arrive by athlete id).
+create table if not exists strava_link (
+  user_id       text primary key references "user"(id) on delete cascade,
+  athlete_id    bigint not null unique,
+  athlete_name  text,
+  scope         text,                              -- what the athlete granted, e.g. read,activity:read_all
+  access_token  text not null,
+  refresh_token text not null,
+  expires_at    timestamptz not null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
 );

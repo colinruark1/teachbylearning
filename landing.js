@@ -99,7 +99,7 @@ const setMode = (m) => {
 };
 
 const openLogin = (m = "login") => { if (!dlg.open) dlg.showModal(); setMode(m); };
-// After login, return to the app page that sent the visitor here (?next=), else the Browse page.
+// After login, return to the app page that sent the visitor here (?next=), else Communities (the app root redirects there).
 const nextUrl = () => {
   const next = new URLSearchParams(location.search).get("next") || "";
   return next.startsWith("/stream-platform/") ? next : "/stream-platform/";
@@ -202,14 +202,14 @@ if (location.hash === "#login" || location.hash === "#signup") {
   history.replaceState(null, "", location.pathname + location.search);
 }
 
-// Signed in already? Swap the nav buttons for "Go to streams" + "Log out".
+// Signed in already? Swap the nav buttons for "Go to the app" + "Log out".
 Auth.getSession().then((s) => {
   if (!s?.user) return;
   signedIn = true;
   const actions = $(".lnav__actions");
   actions.innerHTML = `
     <button class="btn btn--secondary" id="logoutBtn">Log out</button>
-    <a class="btn btn--primary" href="${nextUrl()}">Go to streams</a>`;
+    <a class="btn btn--primary" href="${nextUrl()}">Go to the app</a>`;
   $("#logoutBtn").addEventListener("click", async () => {
     try { await Auth.signOut(); } finally { location.reload(); }
   });

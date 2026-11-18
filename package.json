@@ -6,7 +6,10 @@
     "dev": "vercel dev",
     "migrate": "npx auth@1.7.26 migrate --config lib/auth.js --yes && node scripts/migrate.js",
     "reminders:dev": "node scripts/dev-reminders.js",
-    "linq:webhook": "node scripts/linq-webhook.js"
+    "messaging:webhook": "node scripts/register-webhook.js",
+    "storage:setup": "node scripts/storage-setup.js",
+    "storage:migrate": "node scripts/storage-migrate.js",
+    "strava:webhook": "node scripts/strava-webhook.js"
   },
   "dependencies": {
     "better-auth": "1.7.26",

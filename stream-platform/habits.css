@@ -2,7 +2,8 @@
    components in styles.css. Habit color comes from an inline --hue per element. */
 
 :root {
-  --bubble-me: #1a8cff;   /* sent-message blue in the example text thread */
+  --wa: #1f8f4e;          /* WhatsApp-ish green, darkened for contrast with white text */
+  --wa-hover: #187540;
   --ok: #2e7d32;
   --ok-bg: #e7f1e3;
   --habit-sat: 55%;
@@ -132,6 +133,9 @@
 .phone-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .phone-actions .link-btn { padding: 0; }
 .phone-fine { font-size: 12px; }
+.say-hi { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 14px; border-radius: 8px; background: var(--bg); border: 1px dashed var(--input-border); }
+.btn--wa { background: var(--wa); color: #fff; }
+.btn--wa:hover { background: var(--wa-hover); }
 .notice {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 14px;
@@ -159,11 +163,11 @@
   font-size: 13px;
 }
 .ping__quote { display: block; margin-top: 6px; color: var(--text-muted); font-style: italic; }
-.ping__reply { display: block; margin-top: 6px; }
-.ping__bubble--me {
-  align-self: flex-end; max-width: 75%;
-  background: var(--bubble-me); color: #fff;
-  border-radius: 12px 12px 4px 12px;
+.ping__buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.ping__buttons span {
+  padding: 6px; border-radius: 8px; text-align: center;
+  background: #fff; box-shadow: 0 1px 2px rgba(74, 44, 29, .12);
+  color: var(--wa); font-size: 12px; font-weight: 600;
 }
 
 /* ---------- Today ---------- */

@@ -5,27 +5,35 @@
 //   POST   /api/me/checkins         log a session: proof, details, reflection
 //   DELETE /api/me/checkins/:id
 //   GET    /api/me/proof/:id        a check-in's photo (image/jpeg)
-//   GET    /api/me/phone            { configured, phone, verified, pending }
-//   POST   /api/me/phone            { phone } → texts a 6-digit code (via Linq)
-//   POST   /api/me/phone/verify     { code } → turns text reminders on
-//   DELETE /api/me/phone            turn text reminders off
+//   GET    /api/me/phone            phone reminder status (see phoneStatus)
+//   POST   /api/me/phone            { phone } → sends a verification code (via lib/messaging)
+//   POST   /api/me/phone/verify     { code } → turns phone reminders on
+//   DELETE /api/me/phone            turn phone reminders off
 import { HttpError, bad, json, str, requireUser, readBody, handler } from "../lib/http.js";
+import { randomUUID } from "node:crypto";
 import { pool } from "../lib/db.js";
+import { storage } from "../lib/storage/index.js";
 import { isHabit, isTimeZone } from "../lib/habits.js";
-import { linqConfigured, toE164 } from "../lib/linq.js";
-import { startVerification, confirmVerification } from "../lib/sms.js";
+import { phone as channel, toE164 } from "../lib/messaging/index.js";
+import { startVerification, confirmVerification, windowOpen } from "../lib/bot.js";
 
 /* ---------- State ---------- */
 
 async function phoneStatus(userId) {
   const { rows } = await pool.query(
-    "select phone, verified_at, code_hash from phone_link where user_id = $1", [userId]);
+    "select phone, verified_at, verify_pending, last_inbound_at from phone_link where user_id = $1", [userId]);
   const r = rows[0];
   return {
-    configured: linqConfigured(),
+    configured: channel.configured(),
+    channel: { label: channel.label, ...channel.capabilities },  // e.g. "WhatsApp", buttons, replyWindowHours
     phone: r?.phone ?? null,
     verified: Boolean(r?.verified_at),
-    pending: Boolean(r?.code_hash),   // a code was sent and not yet confirmed
+    pending: Boolean(r?.verify_pending),   // a code was sent and not yet confirmed
+    // Some channels (WhatsApp) only allow free-form messages within N hours of the user's
+    // last message to us, so the UI asks new users to say hi once via chatLink.
+    windowOpen: windowOpen(r?.last_inbound_at),
+    hasMessagedUs: Boolean(r?.last_inbound_at),
+    chatLink: channel.chatLink(),
   };
 }
 
@@ -113,15 +121,19 @@ async function saveOnboarding(user, body) {
 
 /* ---------- Check-ins ---------- */
 
-const MAX_PHOTO_CHARS = 2_500_000; // ~1.8 MB JPEG; the client downscales to 1280px first
+const MAX_PHOTO_BYTES = 1_800_000; // the client downscales to 1280px JPEG first, so real photos are far smaller
 
+// Photos arrive as a JPEG data URL; they're stored as bytes via lib/storage.
 function parseProof(p) {
   const type = p?.type;
   if (type === "photo") {
     const data = typeof p.data === "string" ? p.data : "";
-    if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(data)) bad("Attach a photo as proof.");
-    if (data.length > MAX_PHOTO_CHARS) bad("That photo is too large.");
-    return { type, value: data };
+    const m = data.match(/^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/);
+    if (!m) bad("Attach a photo as proof.");
+    const bytes = Buffer.from(m[1], "base64");
+    if (bytes.length > MAX_PHOTO_BYTES) bad("That photo is too large.");
+    if (bytes[0] !== 0xff || bytes[1] !== 0xd8) bad("That file isn't a JPEG photo.");
+    return { type, bytes };
   }
   if (type === "link") {
     let url;
@@ -158,44 +170,68 @@ async function addCheckin(user, body) {
   const reflection = str(body.reflection, 4000);
   if (!reflection) bad("Add a few thoughts on what you accomplished today.");
 
-  const { rows } = await pool.query(
-    `insert into habit_checkin (user_id, habit, day, proof_type, proof, details, reflection)
-     values ($1, $2, $3, $4, $5, $6, $7)
-     returning id, habit, day, proof_type as "proofType",
-               case when proof_type = 'photo' then null else proof end as proof,
-               details, reflection, created_at as "createdAt"`,
-    [user.id, body.habit, day, proof.type, proof.value, details, reflection]);
-  return rows[0];
+  // Photos go to file storage first; the row records where (proof_storage) and the file's ref.
+  let value = proof.value, storedIn = null;
+  if (proof.type === "photo") {
+    storedIn = storage.id;
+    value = await storage.put(`proof/${user.id}/${randomUUID()}.jpg`, proof.bytes, "image/jpeg");
+  }
+  try {
+    const { rows } = await pool.query(
+      `insert into habit_checkin (user_id, habit, day, proof_type, proof, proof_storage, details, reflection)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       returning id, habit, day, proof_type as "proofType",
+                 case when proof_type = 'photo' then null else proof end as proof,
+                 details, reflection, created_at as "createdAt"`,
+      [user.id, body.habit, day, proof.type, value, storedIn, details, reflection]);
+    return rows[0];
+  } catch (e) {
+    if (storedIn) await storage.remove(storedIn, [value]).catch(() => {}); // don't leave an orphaned file
+    throw e;
+  }
 }
 
 async function deleteCheckin(user, id) {
-  const { rowCount } = await pool.query("delete from habit_checkin where id = $1 and user_id = $2", [id, user.id]);
-  if (!rowCount) throw new HttpError(404, "Not found.");
+  const { rows } = await pool.query(
+    `delete from habit_checkin where id = $1 and user_id = $2
+     returning proof_type, proof, proof_storage`, [id, user.id]);
+  if (!rows[0]) throw new HttpError(404, "Not found.");
+  const r = rows[0];
+  if (r.proof_type === "photo") {
+    await storage.remove(r.proof_storage, [r.proof]).catch((e) => console.error("storage remove:", e.message));
+  }
   return { ok: true };
 }
 
+// Only the owner can see a proof photo: this route checks that, then serves the bytes or
+// redirects to a short-lived signed link from the storage provider.
 async function proofImage(user, id) {
   const { rows } = await pool.query(
-    "select proof from habit_checkin where id = $1 and user_id = $2 and proof_type = 'photo'", [id, user.id]);
+    `select proof, proof_storage from habit_checkin
+     where id = $1 and user_id = $2 and proof_type = 'photo'`, [id, user.id]);
   if (!rows[0]) throw new HttpError(404, "Not found.");
-  const bytes = Buffer.from(rows[0].proof.split(",")[1], "base64");
-  return new Response(bytes, {
-    headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=31536000, immutable" },
+  const file = await storage.open(rows[0].proof_storage, rows[0].proof);
+  if (file.redirect) {
+    // Signed links last an hour; let the browser reuse this redirect for a few minutes.
+    return new Response(null, { status: 302, headers: { location: file.redirect, "cache-control": "private, max-age=300" } });
+  }
+  return new Response(file.bytes, {
+    headers: { "content-type": file.contentType, "cache-control": "private, max-age=31536000, immutable" },
   });
 }
 
-/* ---------- Text reminders (phone) ---------- */
+/* ---------- Phone reminders ---------- */
 
 async function addPhone(user, body) {
-  if (!linqConfigured()) throw new HttpError(503, "Text reminders aren't set up on this server yet.");
+  if (!channel.configured()) throw new HttpError(503, "Phone reminders aren't set up on this server yet.");
   const phone = toE164(body?.phone);
-  if (!phone) bad("Enter a mobile number, like (555) 123-4567 or +44 7700 900123.");
+  if (!phone) bad("Enter your phone number, like (555) 123-4567 or +44 7700 900123.");
   let problem;
   try {
     problem = await startVerification(user.id, phone);
   } catch (e) {
     console.error(e);
-    throw new HttpError(502, "We couldn't text that number. Check it and try again.");
+    throw new HttpError(502, "We couldn't send a code right now. Try again in a moment.");
   }
   if (problem) bad(problem);
   return phoneStatus(user.id);
@@ -203,7 +239,7 @@ async function addPhone(user, body) {
 
 async function verifyPhone(user, body) {
   const code = String(body?.code ?? "").replace(/\s/g, "");
-  if (!/^\d{6}$/.test(code)) bad("Enter the 6-digit code from the text.");
+  if (!/^\d{4,8}$/.test(code)) bad("Enter the code we sent you.");
   const problem = await confirmVerification(user.id, code);
   if (problem) bad(problem);
   return phoneStatus(user.id);

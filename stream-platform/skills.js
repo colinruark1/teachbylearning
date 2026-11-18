@@ -1,4 +1,6 @@
-// Skills for the "Learn a New Skill" section — shared by stream-platform/index.html, learn.html and the root landing page.
+// Communities: one per skill people want to learn. Shared by communities.html, browse.html
+// (unlinked) and the root landing page. New communities come from requests on the hub
+// (see REQUESTS in communities.js). Add one here, with a unique `hue`, when it opens.
 // Mock data — swap for a real API later.
 
 // Stroke-style 20×20 icon. `.ico` in styles.css switches svg from fill to stroke.
@@ -73,12 +75,14 @@ const SKILLS = [
 const fmtCount = (n) =>
   n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "")}K` : String(n);
 
-const skillHref = (id, extra = {}) => `learn.html#${new URLSearchParams({ skill: id, ...extra })}`;
+const skillHref = (id, extra = {}) => `communities.html#${new URLSearchParams({ skill: id, ...extra })}`;
 
-const skillCard = (s, meta) => `
+// `live`: how many members are streaming right now (shows a badge on the art).
+const skillCard = (s, meta, live = 0) => `
   <article class="skill-card">
     <a class="skill-card__art" href="${skillHref(s.id)}" aria-label="${s.name}">
       <div class="thumb">${s.icon}</div>
+      ${live ? `<span class="badge-live">${live} live</span>` : ""}
     </a>
     <a href="${skillHref(s.id)}"><h3 class="skill-card__name">${s.name}</h3></a>
     <p class="skill-card__meta">${meta}</p>

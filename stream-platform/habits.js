@@ -204,51 +204,61 @@ function downscale(file, max = 1280) {
   });
 }
 
-/* ---------- Text reminders: phone + code form ---------- */
+/* ---------- Phone reminders: phone + code form ---------- */
 
 // "+15551234567" → "(555) 123-4567"; other countries are shown as stored.
 const fmtPhone = (p) => (/^\+1\d{10}$/.test(p || "") ? `(${p.slice(2, 5)}) ${p.slice(5, 8)}-${p.slice(8)}` : p || "");
 
 const okIcon = `<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-// Markup for the reminders box, from GET /api/me/phone's { configured, phone, verified, pending }.
+// Markup for the reminders box, from GET /api/me/phone (configured, channel, phone, verified,
+// pending, windowOpen, hasMessagedUs, chatLink; see api/me.js). Wording follows the active
+// channel (s.channel.label, e.g. "WhatsApp"), which is set server-side in lib/messaging.
 // `changing`: the user asked to enter a different number.
 function phoneFormHTML(s, changing = false) {
   if (!s.configured) {
-    return `<div class="notice">Text reminders aren't switched on for this server yet. Your commitments are saved.</div>`;
+    return `<div class="notice">Phone reminders aren't switched on for this server yet. Your commitments are saved.</div>`;
   }
+  const via = s.channel?.label || "text";
   if (s.verified && !changing) {
-    return `<div class="notice notice--ok">${okIcon}<span><b>Texts go to ${esc(fmtPhone(s.phone))}.</b>
-        Reply STATUS any time to see what's left today.</span></div>
+    // Some channels (WhatsApp) only let us message people freely within N hours of their last
+    // message to us, so new users are asked to say hi once (later replies keep it open).
+    const sayHi = s.channel?.replyWindowHours && !s.hasMessagedUs && s.chatLink ? `
+      <div class="say-hi">
+        <p><b>One last step:</b> send us a quick “Hi” on ${esc(via)} so your reminders can reach you.</p>
+        <a class="btn btn--wa" href="${esc(s.chatLink)}" target="_blank" rel="noopener">Say hi on ${esc(via)}</a>
+      </div>` : "";
+    return `<div class="notice notice--ok">${okIcon}<span><b>Reminders go to ${esc(fmtPhone(s.phone))} on ${esc(via)}.</b>
+        Reply STATUS any time to see what's left today.</span></div>${sayHi}
       <div class="phone-actions">
         <button type="button" class="link-btn" data-phone="change">Use a different number</button>
-        <button type="button" class="link-btn" data-phone="off">Turn off texts</button>
+        <button type="button" class="link-btn" data-phone="off">Turn off reminders</button>
       </div>`;
   }
   if (s.pending && !changing) {
     return `<form class="phone-form" data-phone-form="verify" novalidate>
         <label class="commit__field">
-          <span class="ob-label">We texted a code to ${esc(fmtPhone(s.phone))}</span>
+          <span class="ob-label">We sent a code to ${esc(fmtPhone(s.phone))} on ${esc(via)}</span>
           <input class="field phone-input" name="code" inputmode="numeric" autocomplete="one-time-code"
-            maxlength="6" placeholder="6-digit code" required />
+            maxlength="8" placeholder="Code" required />
         </label>
         <button type="submit" class="btn btn--primary">Confirm</button>
       </form>
       <div class="phone-actions">
-        <button type="button" class="link-btn" data-phone="resend">Text me a new code</button>
+        <button type="button" class="link-btn" data-phone="resend">Send a new code</button>
         <button type="button" class="link-btn" data-phone="change">Change number</button>
       </div>
       <p class="ob__err" data-phone-err role="alert"></p>`;
   }
   return `<form class="phone-form" data-phone-form="send" novalidate>
       <label class="commit__field">
-        <span class="ob-label">Mobile number</span>
+        <span class="ob-label">${esc(via === "WhatsApp" ? "WhatsApp number" : "Mobile number")}</span>
         <input class="field phone-input" name="phone" type="tel" autocomplete="tel" inputmode="tel"
           placeholder="(555) 123-4567" value="${esc(changing ? "" : fmtPhone(s.phone))}" required />
       </label>
-      <button type="submit" class="btn btn--primary">Text me a code</button>
+      <button type="submit" class="btn btn--primary">Send me a code</button>
     </form>
-    <p class="muted phone-fine">Works with iMessage or regular texts. Message and data rates may apply. Reply STOP to opt out.</p>
+    <p class="muted phone-fine">We'll send a code on ${esc(via)} to confirm it's you. Reply PAUSE any time to stop reminders.</p>
     <p class="ob__err" data-phone-err role="alert"></p>`;
 }
 

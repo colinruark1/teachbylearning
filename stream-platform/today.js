@@ -25,6 +25,9 @@ const check = `<svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true
 
 /* ---------- Derived data ---------- */
 
+const commitmentFor = (habit) => data.commitments.find((c) => c.habit === habit);
+const communityFor = (habit) => { const c = commitmentFor(habit); return c ? commitmentCommunity(c) : null; };
+
 const doneToday = (habit) => data.checkins.filter((c) => c.habit === habit && c.day === today());
 
 // Consecutive days with at least one check-in, ending today (or yesterday, if today isn't logged yet).
@@ -61,7 +64,7 @@ function renderHead() {
 /* ---------- Habit cards + check-in form ---------- */
 
 function draftFor(h) {
-  return (drafts[h.id] ??= { proofType: h.proof.types[0], photo: "", link: "", text: "", details: {}, reflection: "" });
+  return (drafts[h.id] ??= { proofType: h.proof.types[0], photo: "", link: "", text: "", details: {}, reflection: "", share: true });
 }
 
 function proofInput(h, d) {
@@ -105,6 +108,7 @@ function fieldHTML(f, d) {
 
 function checkinForm(h) {
   const d = draftFor(h);
+  const community = communityFor(h.id);
   return `
     <form class="checkin" data-habit="${h.id}" novalidate>
       <fieldset class="checkin__group">
@@ -123,6 +127,11 @@ function checkinForm(h) {
         <span class="checkin__legend">3. Thoughts on today</span>
         <textarea class="field" data-k="reflection" rows="3" maxlength="4000" placeholder="${esc(h.reflect)}">${esc(d.reflection)}</textarea>
       </label>
+      ${community ? `
+        <label class="checkin__share">
+          <input type="checkbox" data-k="share" ${d.share ? "checked" : ""} />
+          <span>Post this to the <a href="${skillHref(community.id)}">${esc(community.name)}</a> community's progress feed</span>
+        </label>` : ""}
       <p class="ob__err" data-err role="alert"></p>
       <div class="checkin__actions">
         <button type="button" class="btn btn--secondary" data-action="close">Cancel</button>
@@ -148,6 +157,7 @@ function habitCard(c) {
         <div class="habit-card__text">
           <h3 class="habit-card__name">${h.name} ${status}</h3>
           <p class="habit-card__statement">“${esc(c.statement)}”</p>
+          ${commitmentCommunity(c) ? `<p class="habit-card__community muted">Shared to <a href="${skillHref(commitmentCommunity(c).id)}">${esc(commitmentCommunity(c).name)}</a></p>` : ""}
           ${done.length ? `<p class="habit-card__last">${check} ${esc(h.summary(done[0].details) || "Logged")}</p>` : ""}
         </div>
         ${isOpen ? "" : `<button type="button" class="btn ${done.length ? "btn--secondary" : "btn--primary"}" data-action="open" data-habit="${h.id}">${btn}</button>`}
@@ -218,7 +228,8 @@ function renderCommitList() {
     const h = habitById(c.habit);
     return h ? `<li style="--hue:${h.hue}"><span class="habit-icon habit-icon--sm">${h.icon}</span>
       <span><b>${h.name}</b><br /><span class="muted">${fmtDays(c.days)} at ${fmtTime(c.time)}${
-        c.remindBefore ? ` · nudge ${c.remindBefore} min before` : ""}</span></span></li>` : "";
+        c.remindBefore ? ` · nudge ${c.remindBefore} min before` : ""}${
+        commitmentCommunity(c) ? ` · shared to ${esc(commitmentCommunity(c).name)}` : ""}</span></span></li>` : "";
   }).join("");
 }
 
@@ -294,6 +305,7 @@ document.addEventListener("input", (e) => {
   if (!form) return;
   const d = draftFor(habitById(form.dataset.habit));
   if (e.target.dataset.detail) d.details[e.target.dataset.detail] = e.target.value;
+  else if (e.target.type === "checkbox") d[e.target.dataset.k] = e.target.checked;
   else if (e.target.dataset.k) d[e.target.dataset.k] = e.target.value;
 });
 
@@ -343,12 +355,16 @@ document.addEventListener("submit", async (e) => {
     });
     data.checkins.unshift(saved);
     if (!data.activeDays.includes(saved.day)) data.activeDays.unshift(saved.day);
+    const community = d.share ? communityFor(h.id) : null;
+    const shared = community && shareToCommunity(h, community.id, saved, proof.type === "photo" ? d.photo : "");
     delete drafts[h.id];
     openHabit = null;
     renderHead();
     renderCards();
     renderLog();
-    toast(`${h.name} logged. That's your 1% for today.`);
+    toast(shared ? `${h.name} logged and posted to ${community.name}.`
+      : community ? `${h.name} logged, but it couldn't be posted to ${community.name} (browser storage is full).`
+      : `${h.name} logged. That's your 1% for today.`);
   } catch (ex) {
     err.textContent = ex.message;
     btn.disabled = false;

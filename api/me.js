@@ -41,7 +41,7 @@ async function getState(user) {
   const [commitments, checkins, days, phone] = await Promise.all([
     pool.query(
       `select habit, statement, days, to_char(time_local, 'HH24:MI') as time, timezone,
-              remind_before_min as "remindBefore"
+              remind_before_min as "remindBefore", community
        from habit_commitment where user_id = $1 and active order by time_local`, [user.id]),
     pool.query(
       `select id, habit, day, proof_type as "proofType",
@@ -78,7 +78,10 @@ function parseCommitment(c) {
   if (!isTimeZone(c.timezone)) bad("Unknown time zone.");
   const remindBefore = Number(c.remindBefore);
   if (!REMIND_OPTIONS.includes(remindBefore)) bad("Invalid reminder time.");
-  return { habit, statement, days, time: c.time, timezone: c.timezone, remindBefore };
+  // A SKILLS id from stream-platform/skills.js, or "none" to keep check-ins private.
+  const community = c.community == null || c.community === "" ? null : String(c.community);
+  if (community !== null && !/^[a-z][a-z0-9-]{0,40}$/.test(community)) bad("Unknown community.");
+  return { habit, statement, days, time: c.time, timezone: c.timezone, remindBefore, community };
 }
 
 async function saveOnboarding(user, body) {
@@ -94,11 +97,12 @@ async function saveOnboarding(user, body) {
     for (const c of list) {
       // A changed schedule may need today's reminder again, so reset the send markers.
       await client.query(
-        `insert into habit_commitment (user_id, habit, statement, days, time_local, timezone, remind_before_min)
-         values ($1, $2, $3, $4, $5, $6, $7)
+        `insert into habit_commitment (user_id, habit, statement, days, time_local, timezone, remind_before_min, community)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)
          on conflict (user_id, habit) do update set
            statement = excluded.statement, days = excluded.days, time_local = excluded.time_local,
            timezone = excluded.timezone, remind_before_min = excluded.remind_before_min, active = true,
+           community = excluded.community,
            updated_at = now(),
            last_reminded_on = case when habit_commitment.time_local = excluded.time_local
                                     and habit_commitment.timezone = excluded.timezone
@@ -106,7 +110,7 @@ async function saveOnboarding(user, body) {
            last_followup_on = case when habit_commitment.time_local = excluded.time_local
                                     and habit_commitment.timezone = excluded.timezone
                                then habit_commitment.last_followup_on end`,
-        [user.id, c.habit, c.statement, c.days, c.time, c.timezone, c.remindBefore]);
+        [user.id, c.habit, c.statement, c.days, c.time, c.timezone, c.remindBefore, c.community]);
     }
     await client.query(`update "user" set "onboardedAt" = coalesce("onboardedAt", now()) where id = $1`, [user.id]);
     await client.query("commit");

@@ -35,6 +35,9 @@ create index if not exists habit_checkin_user_day on habit_checkin (user_id, day
 -- Where a photo proof's file lives (a lib/storage provider id, e.g. "supabase"); `proof` then
 -- holds that provider's ref. Null on old rows = stored inline in `proof` as a data URL.
 alter table habit_checkin add column if not exists proof_storage text;
+-- Community (a SKILLS id in stream-platform/skills.js) the user shares check-ins to.
+-- 'none' = keep private; null = never chosen, so the habit's default community applies.
+alter table habit_commitment add column if not exists community text;
 
 -- WhatsApp number that reminders go to (via Bird). Reminders go out only while verified_at
 -- is set; PAUSE/STOP clear it. Codes are sent and checked by Bird Verify.

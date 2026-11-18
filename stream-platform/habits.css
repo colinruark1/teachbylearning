@@ -103,6 +103,8 @@
 .commit__sched { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; margin-top: 6px; }
 .commit__field { display: flex; flex-direction: column; gap: 4px; }
 .commit__field .field { height: 38px; }
+.commit__community { margin-top: 12px; }
+.commit__community .field { max-width: 320px; }
 .commit__preview {
   margin-top: 4px; padding: 10px 12px;
   background: var(--bg); border-radius: 6px;
@@ -220,6 +222,10 @@
 .checkin__field--wide { grid-column: 1 / -1; }
 .checkin__field .field { height: 38px; width: 100%; }
 .checkin textarea.field { width: 100%; resize: vertical; }
+.checkin__share { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; cursor: pointer; }
+.checkin__share input { margin-top: 3px; accent-color: var(--accent); }
+.checkin__share a, .habit-card__community a { color: var(--accent); }
+.habit-card__community { margin-top: 2px; font-size: 13px; }
 .checkin__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .checkin__actions .btn { height: 36px; padding: 0 16px; }
 

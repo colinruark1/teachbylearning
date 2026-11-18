@@ -42,6 +42,7 @@ const draftFor = (id) =>
     days: [...habitById(id).defaults.days],
     time: habitById(id).defaults.time,
     remindBefore: 30,
+    community: habitById(id).skill || "none",
     touchedDays: false,
     touchedTime: false,
   });
@@ -120,6 +121,14 @@ function commitCard(h) {
         </label>
       </div>
       <p class="commit__preview" data-preview>${previewText(d, h)}</p>
+      <label class="commit__field commit__community">
+        <span class="ob-label">Share check-ins to a community</span>
+        <select class="field" data-k="community">
+          <option value="none" ${d.community === "none" ? "selected" : ""}>Keep them private</option>
+          ${SKILLS.map((s) => `<option value="${s.id}" ${s.id === d.community ? "selected" : ""}>${esc(s.name)}${s.id === h.skill ? " (suggested)" : ""}</option>`).join("")}
+        </select>
+        <span class="commit__hint">Each time you log ${esc(h.name.toLowerCase())}, you can post it to this community's progress feed.</span>
+      </label>
     </article>`;
 }
 
@@ -176,7 +185,7 @@ async function saveCommitments(e) {
       body: {
         commitments: chosen().map((h) => {
           const d = draftFor(h.id);
-          return { habit: h.id, statement: d.statement.trim(), days: d.days, time: d.time, timezone, remindBefore: d.remindBefore };
+          return { habit: h.id, statement: d.statement.trim(), days: d.days, time: d.time, timezone, remindBefore: d.remindBefore, community: d.community };
         }),
       },
     });
@@ -289,6 +298,9 @@ main.addEventListener("input", (e) => {
     d.touchedTime = true;
   } else if (k === "remindBefore") {
     d.remindBefore = Number(e.target.value);
+  } else if (k === "community") {
+    d.community = e.target.value;
+    return;
   }
   syncCard(id);
 });
@@ -308,6 +320,7 @@ main.addEventListener("submit", (e) => { if (e.target.id === "commitForm") saveC
       state.selected.add(c.habit);
       state.drafts[c.habit] = {
         statement: c.statement, days: c.days, time: c.time, remindBefore: c.remindBefore,
+        community: commitmentCommunity(c)?.id || "none",
         touchedDays: true, touchedTime: true,
       };
     }

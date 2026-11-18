@@ -356,14 +356,17 @@ document.addEventListener("submit", async (e) => {
     data.checkins.unshift(saved);
     if (!data.activeDays.includes(saved.day)) data.activeDays.unshift(saved.day);
     const community = d.share ? communityFor(h.id) : null;
-    const shared = community && shareToCommunity(h, community.id, saved, proof.type === "photo" ? d.photo : "");
+    let shared = false, shareError = "";
+    if (community) {
+      try { await shareCheckin(h, saved); shared = true; } catch (ex) { shareError = ex.message; }
+    }
     delete drafts[h.id];
     openHabit = null;
     renderHead();
     renderCards();
     renderLog();
     toast(shared ? `${h.name} logged and posted to ${community.name}.`
-      : community ? `${h.name} logged, but it couldn't be posted to ${community.name} (browser storage is full).`
+      : community ? `${h.name} logged, but it couldn't be posted to ${community.name}. ${shareError}`
       : `${h.name} logged. That's your 1% for today.`);
   } catch (ex) {
     err.textContent = ex.message;

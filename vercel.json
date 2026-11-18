@@ -3,6 +3,7 @@
     { "source": "/api/auth/:path*", "destination": "/api/auth?__path=:path*" },
     { "source": "/api/me/:path*", "destination": "/api/me?__path=:path*" },
     { "source": "/api/admin/:path*", "destination": "/api/admin?__path=:path*" },
-    { "source": "/api/strava/:path*", "destination": "/api/strava?__path=:path*" }
+    { "source": "/api/strava/:path*", "destination": "/api/strava?__path=:path*" },
+    { "source": "/api/communities/:path*", "destination": "/api/communities?__path=:path*" }
   ]
 }

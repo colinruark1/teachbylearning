@@ -142,8 +142,8 @@ async function stravaCheck(hb, schemaOk) {
 const KNOWN_GAPS = [
   { id: "streams", name: "Community live streams", status: "missing",
     detail: "Live streams are mock data (LIVE_STREAMS in communities.js) and there is no stream player yet. The unlinked Browse page (browse.html) uses STREAMS, CATEGORIES in app.js." },
-  { id: "learn", name: "Community posts & requests", status: "missing",
-    detail: "Progress posts, discussions, likes, comments and community requests live in each visitor's browser (localStorage), so nobody else sees them." },
+  { id: "learn", name: "Community posts & requests", status: "warn",
+    detail: "Check-ins shared from Today are real shared posts (community_post, api/communities.js) with likes and comments. Posts written on the Communities page, discussions, joins and community requests still live in each visitor's browser (localStorage), so nobody else sees them." },
 ];
 
 // Active provider's own checks, plus photos still held by an older provider.

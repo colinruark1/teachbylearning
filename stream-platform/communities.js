@@ -2,8 +2,9 @@
 // learning (LIVE_STREAMS), a progress feed sorted by popularity, and a discussion forum.
 // The hub lets members request new communities and upvote requests (REQUESTS); a request
 // that reaches REQUEST_GOAL is ready to open as a new SKILLS entry.
-// Posts, joins and requests are persisted to localStorage (no fake users). Replace `load`/`persist` with a real API and
-// `LIVE_STREAMS` with the streaming backend. Strava is real: /api/strava (api/strava.js)
+// Check-ins members share from Today are real, shared posts (`shared`, from /api/communities,
+// see api/communities.js) that everyone sees. Posts written here, discussions, joins and
+// requests are still browser-local (localStorage). Replace `LIVE_STREAMS` with the streaming backend. Strava is real: /api/strava (api/strava.js)
 // handles OAuth and lists the signed-in user's own activities.
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -114,6 +115,61 @@ function load() {
 }
 
 const state = load();
+
+// ---------- Shared posts (server; api/communities.js) ----------
+// Check-ins shared from Today. Ids are prefixed ("s12") so they can't collide with local posts.
+let shared = [];
+const allPosts = () => [...shared, ...state.posts];
+
+async function communityApi(path, { method = "GET", body } = {}) {
+  let res;
+  try {
+    res = await fetch(`/api/communities/${path}`, {
+      method, credentials: "same-origin",
+      headers: body === undefined ? {} : { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("Can't reach the server. Check your connection and try again.");
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.message || `Request failed (${res.status})`);
+  return data;
+}
+
+const fromServer = (p) => ({
+  ...p, id: `s${p.id}`, serverId: p.id, server: true, title: null, strava: null,
+  media: p.photo ? [{ type: "image", label: "Proof photo", src: `/api/communities/posts/${p.id}/photo` }] : [],
+});
+
+// Earlier versions saved shared check-ins only in this browser (posts with a checkinId).
+// Upload those once so everyone sees them, then drop the local copies.
+async function uploadLocalCheckinPosts() {
+  const local = state.posts.filter((p) => p.checkinId);
+  if (!local.length) return;
+  for (const p of local) {
+    try {
+      await communityApi("share", { method: "POST", body: { checkinId: p.checkinId, body: p.body } });
+      state.posts = state.posts.filter((x) => x !== p);
+    } catch (e) {
+      // The check-in was deleted or its habit is now private: keep the local post as it was.
+      if (!/doesn't exist|isn't shared/.test(e.message)) throw e;
+      delete p.checkinId;
+    }
+  }
+  persist();
+}
+
+async function loadShared() {
+  try {
+    await uploadLocalCheckinPosts();
+    shared = (await communityApi("posts")).posts.map(fromServer);
+  } catch (e) {
+    toast(`Couldn't load community posts. ${e.message}`);
+    return;
+  }
+  render();
+}
 
 // Videos only live as session blob URLs (too big for localStorage), so drop them on save.
 function persist() {
@@ -249,8 +305,9 @@ function commentsHTML(p) {
   </div>`;
 }
 
+const mine = (p) => (p.server ? p.mine : p.user === ME.user);
 const deleteBtn = (p) =>
-  p.user === ME.user
+  mine(p)
     ? `<button class="icon-btn post__delete" data-action="delete" aria-label="Delete post" title="Delete">${ICONS.trash}</button>`
     : "";
 
@@ -398,7 +455,7 @@ function threadComposer(s, sub) {
 function topLearnersHTML(s) {
   const since = ago(7 * 24);
   const totals = {};
-  state.posts
+  allPosts()
     .filter((p) => p.skill === s.id && p.minutes && p.t > since)
     .forEach((p) => {
       (totals[p.user] ??= { user: p.user, hue: p.hue, min: 0 }).min += p.minutes;
@@ -481,7 +538,7 @@ const matchesQuery = (s) =>
 
 function communityGridHTML() {
   const counts = {};
-  state.posts.forEach((p) => (counts[p.skill] = (counts[p.skill] || 0) + 1));
+  allPosts().forEach((p) => (counts[p.skill] = (counts[p.skill] || 0) + 1));
   const list = SKILLS.filter(matchesQuery);
   if (!list.length) {
     return `<p class="empty">No community for “${esc(query)}” yet. <button class="link-btn" data-action="request-query">Request it</button> and others can upvote it.</p>`;
@@ -511,8 +568,8 @@ function renderSidenav() {
 
 function renderHub() {
   document.title = "Communities · Stream Platform";
-  const popular = state.posts.filter((p) => p.kind === "progress").sort(byPopular).slice(0, 8);
-  const discussions = state.posts.filter((p) => p.kind === "thread").sort((a, b) => lastActivity(b) - lastActivity(a)).slice(0, 6);
+  const popular = allPosts().filter((p) => p.kind === "progress").sort(byPopular).slice(0, 8);
+  const discussions = allPosts().filter((p) => p.kind === "thread").sort((a, b) => lastActivity(b) - lastActivity(a)).slice(0, 6);
   const live = [...LIVE_STREAMS].sort((a, b) => b.viewers - a.viewers).slice(0, 4);
 
   main.innerHTML = `
@@ -566,7 +623,7 @@ function renderHub() {
 function renderSkill() {
   const { skill: s, tab, sub, sort } = view;
   document.title = `${s.name} · Communities`;
-  const inSkill = state.posts.filter((p) => p.skill === s.id);
+  const inSkill = allPosts().filter((p) => p.skill === s.id);
   const posts = inSkill.filter((p) => !sub || p.sub === sub);
   const progress = posts.filter((p) => p.kind === "progress").sort(sort === "new" ? (a, b) => b.t - a.t : byPopular);
   const threads = posts.filter((p) => p.kind === "thread").sort((a, b) => lastActivity(b) - lastActivity(a));
@@ -710,7 +767,7 @@ main.addEventListener("click", (e) => {
   const el = e.target.closest("[data-action]");
   if (!el) return;
   const id = el.closest("[data-id]")?.dataset.id;
-  const p = id && state.posts.find((x) => x.id === id);
+  const p = id && allPosts().find((x) => x.id === id);
 
   switch (el.dataset.action) {
     case "watch":
@@ -729,6 +786,12 @@ main.addEventListener("click", (e) => {
       addRequest(query);
       break;
     case "like":
+      if (p.server) {
+        communityApi(`posts/${p.serverId}/like`, { method: "POST" })
+          .then((r) => { Object.assign(p, r); refreshPost(p); })
+          .catch((ex) => toast(ex.message));
+        break;
+      }
       p.liked = !p.liked;
       p.likes += p.liked ? 1 : -1;
       persist();
@@ -744,6 +807,13 @@ main.addEventListener("click", (e) => {
       refreshPost(p);
       break;
     case "delete":
+      if (p.server) {
+        if (!confirm("Delete this post from the community? Your check-in stays in your log.")) return;
+        communityApi(`posts/${p.serverId}`, { method: "DELETE" })
+          .then(() => { shared = shared.filter((x) => x !== p); render(); })
+          .catch((ex) => toast(ex.message));
+        break;
+      }
       if (!confirm("Delete this post?")) return;
       state.posts = state.posts.filter((x) => x.id !== id);
       persist();
@@ -839,7 +909,20 @@ main.addEventListener("submit", (e) => {
     case "comment": {
       if (!body) return;
       const id = form.closest("[data-id]").dataset.id;
-      const p = state.posts.find((x) => x.id === id);
+      const p = allPosts().find((x) => x.id === id);
+      if (p.server) {
+        const input = form.querySelector("input");
+        input.disabled = true;
+        communityApi(`posts/${p.serverId}/comments`, { method: "POST", body: { body } })
+          .then((cm) => {
+            p.comments.push(cm);
+            openComments.add(id);
+            refreshPost(p);
+            main.querySelector(`[data-id="${id}"] .comment-form input`)?.focus();
+          })
+          .catch((ex) => { input.disabled = false; toast(ex.message); });
+        break;
+      }
       p.comments.push({ id: uid(), ...ME, body, t: Date.now() });
       (p.kind === "thread" ? openThreads : openComments).add(id);
       persist();
@@ -899,6 +982,7 @@ window.addEventListener("hashchange", route);
     history.replaceState(null, "", `#${q}`);
   }
   route();
+  loadShared();
   if (result === "connected") {
     stravaOpen = true;
     loadStrava();

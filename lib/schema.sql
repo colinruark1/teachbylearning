@@ -39,6 +39,40 @@ alter table habit_checkin add column if not exists proof_storage text;
 -- 'none' = keep private; null = never chosen, so the habit's default community applies.
 alter table habit_commitment add column if not exists community text;
 
+-- Community posts everyone signed in can see. `skill` is a community id (SKILLS in
+-- stream-platform/skills.js, mirrored in lib/communities.js). Posts shared from a check-in
+-- keep checkin_id (one post per check-in) and show its proof photo; deleting the check-in
+-- deletes the post.
+create table if not exists community_post (
+  id          bigserial primary key,
+  user_id     text not null references "user"(id) on delete cascade,
+  skill       text not null,
+  sub         text not null,                       -- subtopic, e.g. Creative Writing
+  kind        text not null default 'progress',    -- progress (threads stay browser-local for now)
+  body        text not null default '',
+  minutes     smallint,
+  checkin_id  bigint unique references habit_checkin(id) on delete cascade,
+  created_at  timestamptz not null default now()
+);
+create index if not exists community_post_skill_created on community_post (skill, created_at desc);
+create index if not exists community_post_created on community_post (created_at desc);
+
+create table if not exists community_like (
+  post_id     bigint not null references community_post(id) on delete cascade,
+  user_id     text not null references "user"(id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (post_id, user_id)
+);
+
+create table if not exists community_comment (
+  id          bigserial primary key,
+  post_id     bigint not null references community_post(id) on delete cascade,
+  user_id     text not null references "user"(id) on delete cascade,
+  body        text not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists community_comment_post on community_comment (post_id, created_at);
+
 -- WhatsApp number that reminders go to (via Bird). Reminders go out only while verified_at
 -- is set; PAUSE/STOP clear it. Codes are sent and checked by Bird Verify.
 create table if not exists phone_link (

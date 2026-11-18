@@ -7,7 +7,8 @@
 // fields: the "what did you do" details stored with each check-in.
 // summary(details): one-line recap shown in the log.
 // skill + sub: the community (SKILLS id in skills.js) and subtopic that check-ins are shared
-//   to by default. Users can pick another community, or none, per commitment.
+//   to by default (mirrored server-side in lib/habits.js). Users can pick another community,
+//   or none, per commitment.
 const HABITS = [
   {
     id: "gym", name: "The Gym", hue: 0, skill: "fitness", sub: "Weightlifting",
@@ -108,35 +109,27 @@ const communityById = (id) => (id ? SKILLS.find((s) => s.id === id) || null : nu
 const commitmentCommunity = (c) =>
   c.community === "none" ? null : communityById(c.community) || communityById(habitById(c.habit)?.skill);
 
-// Subtopic for a habit's posts in community `s`: the habit's own when it's that community's.
-const communitySub = (h, s) => (h.skill === s.id && s.subs.includes(h.sub) ? h.sub : s.subs[0]);
+// The text of a check-in's community post: the one-line summary, pasted work or link, and reflection.
+const checkinPostBody = (h, checkin) => {
+  const proof = checkin.proofType === "text" || checkin.proofType === "link" ? checkin.proof : "";
+  return [h.summary(checkin.details), proof, checkin.reflection].filter(Boolean).join("\n\n").slice(0, 4000);
+};
 
-// Adds a check-in to a community's progress feed. Community posts are browser-local
-// (localStorage "tbl.learn.v1", owned by communities.js), so this writes the same shape.
-// Joins the community too. Returns false if browser storage is unavailable or full.
-function shareToCommunity(h, communityId, checkin, photo) {
-  const s = communityById(communityId);
-  if (!s) return false;
-  const KEY = "tbl.learn.v1";
+// Posts a check-in to the community its commitment shares to (api/communities.js). The server
+// picks the community and subtopic, attaches the proof photo, and posts each check-in only once.
+async function shareCheckin(h, checkin) {
+  let res;
   try {
-    const st = JSON.parse(localStorage.getItem(KEY) || "null") || { posts: [], joined: [], requests: [], real: true };
-    st.posts ??= [];
-    st.joined ??= [];
-    const proof = checkin.proofType === "text" || checkin.proofType === "link" ? checkin.proof : "";
-    const body = [h.summary(checkin.details), proof, checkin.reflection].filter(Boolean).join("\n\n").slice(0, 4000);
-    st.posts.unshift({
-      id: Math.random().toString(36).slice(2, 10), kind: "progress", skill: s.id, sub: communitySub(h, s),
-      title: null, body, minutes: Number(checkin.details.minutes) || null,
-      media: photo ? [{ type: "image", label: `${h.name} proof`, src: photo }] : [],
-      strava: null, comments: [], likes: 0, liked: false, user: "You", hue: 28, t: Date.now(),
-      habit: h.id, checkinId: checkin.id,
+    res = await fetch("/api/communities/share", {
+      method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ checkinId: checkin.id, body: checkinPostBody(h, checkin) }),
     });
-    if (!st.joined.includes(s.id)) st.joined.push(s.id);
-    localStorage.setItem(KEY, JSON.stringify(st));
-    return true;
   } catch {
-    return false;
+    throw new Error("Can't reach the server.");
   }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.message || `Request failed (${res.status})`);
+  return data;
 }
 
 /* ---------- Formatting ---------- */

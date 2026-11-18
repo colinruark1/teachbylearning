@@ -19,6 +19,7 @@ The static pages can be served with `python3 -m http.server 8000` from the repo 
 - Create or update the tables with `npm run migrate` (Better Auth's tables, then the app tables in `lib/schema.sql`).
 - Phone reminders (optional): set `PHONE_PROVIDER=log` to print messages in the terminal (the verification code is `000000`), or configure a real provider (see `.env.example`). Run `npm run reminders:dev` alongside `vercel dev` to tick reminders every minute. With the log provider, fake an incoming reply with `curl -X POST localhost:3000/api/inbound -H 'x-dev-inbound: 1' -d '{"from":"+1555…","text":"status"}'`. Real providers need a public https webhook (deploy or tunnel).
 - On Vercel, deploy from the repo root (leave Root Directory blank) and set the same env vars.
+  - Preview (branch) deploys ignore `BETTER_AUTH_URL` and use the branch URL (`VERCEL_BRANCH_URL`, or `PREVIEW_BASE_URL` if set). `lib/db.js` also trusts the per-deploy URL. The other env vars must be enabled for the Preview environment in Vercel too.
   - Also set `BIRD_API_KEY`, `BIRD_WHATSAPP_NUMBER`, `BIRD_TEMPLATE_SLUG` and `CRON_SECRET`. Run `npm run messaging:webhook` once with `BETTER_AUTH_URL` set to the deployed origin, then set the printed secret (`BIRD_WEBHOOK_SECRET` for Bird) and redeploy.
   - Something must `POST /api/reminders` with `Authorization: Bearer $CRON_SECRET` every 1–5 minutes. Use cron-job.org or `.github/workflows/reminders.yml` (set the repo variable `APP_URL` and the secret `CRON_SECRET`). Vercel Hobby cron only runs daily.
 

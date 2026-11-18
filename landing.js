@@ -43,7 +43,7 @@ updateCalc();
 /* ---------- Skill chips ---------- */
 $("#skillChips").innerHTML = SKILLS.map((s) => `
   <li>
-    <a class="skill-chip" href="${skillHref(s.id)}" style="--hue:${s.hue}">
+    <a class="skill-chip" href="stream-platform/${skillHref(s.id)}" style="--hue:${s.hue}">
       <span class="skill-chip__ico">${s.icon}</span>
       <span class="skill-chip__name">${s.name}</span>
       <span class="skill-chip__meta">${fmtCount(s.learners)} learners</span>
@@ -89,7 +89,7 @@ const setMode = (m) => {
 };
 
 const openLogin = (m = "login") => { if (!dlg.open) dlg.showModal(); setMode(m); };
-const finish = () => { password = ""; location.href = "browse.html"; };
+const finish = () => { password = ""; location.href = "stream-platform/"; };
 
 // Disable a form's submit button while a request is in flight.
 const busy = async (form, fn) => {
@@ -193,7 +193,7 @@ Auth.getSession().then((s) => {
   const actions = $(".lnav__actions");
   actions.innerHTML = `
     <button class="btn btn--secondary" id="logoutBtn">Log out</button>
-    <a class="btn btn--primary" href="browse.html">Go to streams</a>`;
+    <a class="btn btn--primary" href="stream-platform/">Go to streams</a>`;
   $("#logoutBtn").addEventListener("click", async () => {
     try { await Auth.signOut(); } finally { location.reload(); }
   });

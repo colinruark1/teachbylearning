@@ -1,4 +1,4 @@
-// Skills for the "Learn a New Skill" section — shared by browse.html and learn.html.
+// Skills for the "Learn a New Skill" section — shared by stream-platform/index.html, learn.html and the root landing page.
 // Mock data — swap for a real API later.
 
 // Stroke-style 20×20 icon. `.ico` in styles.css switches svg from fill to stroke.

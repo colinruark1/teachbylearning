@@ -1,0 +1,23 @@
+# Free scheduler for commitment reminders: calls POST /api/reminders every 5 minutes.
+# Setup: repo Settings → Secrets and variables → Actions
+#   • variable APP_URL   = https://your-app.vercel.app
+#   • secret   CRON_SECRET = same value as in Vercel
+# GitHub may run scheduled jobs a few minutes late, and Actions minutes are free only
+# for public repos. For on-the-minute timing (or a private repo), use cron-job.org instead.
+name: Habit reminders
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  tick:
+    if: vars.APP_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/reminders"
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

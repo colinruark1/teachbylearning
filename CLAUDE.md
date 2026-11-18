@@ -16,8 +16,11 @@ Everything is plain HTML/CSS/vanilla JS: no framework, no build step, no tests, 
 The static pages can be served with `python3 -m http.server 8000` from the repo root. Login needs the auth API, though, so use `vercel dev` from the repo root:
 
 - Put the env vars in `.env.local` (see `.env.example`): `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and `DATABASE_URL` for Postgres.
-- Create or update the tables with `npm run migrate`.
+- Create or update the tables with `npm run migrate` (Better Auth's tables, then the app tables in `lib/schema.sql`).
+- Reminders bot (optional): set `TELEGRAM_BOT_TOKEN`/`TELEGRAM_BOT_USERNAME` and run `npm run bot:dev` alongside `vercel dev`. It long-polls Telegram and runs the reminder tick every minute, since Telegram can't reach localhost. Use a separate dev bot, because polling removes the bot's webhook.
 - On Vercel, deploy from the repo root (leave Root Directory blank) and set the same env vars.
+  - Also set `TELEGRAM_WEBHOOK_SECRET` and `CRON_SECRET`, then run `npm run telegram:webhook` once with `BETTER_AUTH_URL` set to the deployed origin.
+  - Something must `POST /api/reminders` with `Authorization: Bearer $CRON_SECRET` every 1–5 minutes. Use cron-job.org or `.github/workflows/reminders.yml` (set the repo variable `APP_URL` and the secret `CRON_SECRET`). Vercel Hobby cron only runs daily.
 
 ## Architecture
 
@@ -31,7 +34,18 @@ The static pages can be served with `python3 -m http.server 8000` from the repo 
   - The gate is client-side only, which is fine while app content is static mock data. Real per-user data must be protected server-side.
   - `auth-client.js` is a small `fetch` wrapper for the REST endpoints; sessions are httpOnly cookies on path `/`.
   - QR codes come from `qrcode-generator` on cdnjs.
-- **`lib/auth.js`** holds the Better Auth config (email+password, `twoFactor()` plugin, `pg` Pool).
+- **`lib/auth.js`** holds the Better Auth config (email+password, `twoFactor()` plugin, plus the user field `onboardedAt`, which clients can't write). `lib/db.js` holds the shared `pg` Pool and `baseURL`.
+- **Onboarding + habits** (Gym, Poetry, Reading, LeetCode):
+  - `auth-guard.js` sends signed-in users without `onboardedAt` to `onboarding.html`, which runs three steps: pick habits → write a commitment per habit (`parseCommitment` pre-fills days/time) → connect Telegram.
+  - `POST /api/me/onboarding` saves the commitments and sets `onboardedAt`; revisiting the page edits them.
+  - `today.html` + `today.js` let users log check-ins (proof photo/link/text, habit-specific details, reflection) and show the streak and log.
+  - `stream-platform/habits.js` defines each habit's UI: proof types, detail fields, `summary`. It declares `esc`/`downscale`, so don't load it on pages that load `learn.js`.
+  - `lib/habits.js` has the server-side ids and the bot copy. Keep the ids in sync with `stream-platform/habits.js`.
+- **`api/me.js`** is the router for the signed-in user's data (`/api/me/*`, rewritten like auth). It requires a session with 2FA enabled. Proof photos are JPEG data URLs stored in Postgres and served from `/api/me/proof/:id`.
+- **Reminders** use Telegram as a free stand-in for SMS.
+  - `lib/telegram.js` handles `/start <token>` linking, `/status`, `/stop` and the reminder buttons.
+  - `lib/reminders.js` sends a nudge from `remind_before_min` before the start time until 30 min after it, and a follow-up 2 h after the start time if the habit isn't logged. It sends each at most once per local day.
+  - `api/telegram.js` is the webhook (checks `TELEGRAM_WEBHOOK_SECRET`). `api/reminders.js` is the cron tick.
 - **`api/auth.js`** is a single Vercel function: `vercel.json` rewrites `/api/auth/<path>` to `/api/auth?__path=<path>`, and the function rebuilds the original URL before calling `auth.handler`.
 - **`stream-platform/index.html`** (Browse) is a static shell. All content regions are empty containers identified by id (`#channelList`, `#heroStage`, `#liveGrid`, `#categoryGrid`, `#chatGrid`) that `app.js` fills.
 - **`app.js`** holds mock data (`STREAMS`, `CATEGORIES` — marked to be replaced by a real API) and renders everything via template-literal strings assigned to `innerHTML`. Shared helpers: `$` (querySelector), `fmtViewers` (e.g. `48K`, `1.3K`) and `avatar(s)`.

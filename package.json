@@ -4,11 +4,13 @@
   "type": "module",
   "scripts": {
     "dev": "vercel dev",
-    "migrate": "npx auth@1.7.26 migrate --config lib/auth.js --yes"
+    "migrate": "npx auth@1.7.26 migrate --config lib/auth.js --yes && node scripts/migrate.js",
+    "bot:dev": "node scripts/dev-bot.js",
+    "telegram:webhook": "node scripts/telegram-webhook.js"
   },
   "dependencies": {
     "better-auth": "1.7.26",
     "pg": "^8.13.1"
   },
-  "engines": { "node": ">=20" }
+  "engines": { "node": ">=20.12" }
 }

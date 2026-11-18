@@ -90,6 +90,8 @@ h2, h3, p { margin: 0; }
 }
 .topnav__left, .topnav__right { display: flex; align-items: center; gap: 8px; flex: 1; }
 .topnav__right { justify-content: flex-end; }
+.topnav__user { font-weight: 600; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) { .topnav__user { display: none; } }
 
 .logo { color: var(--accent); padding: 0 6px; transition: transform .15s; }
 .logo:hover { transform: translate(-2px, -2px); }

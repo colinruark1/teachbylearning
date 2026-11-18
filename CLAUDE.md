@@ -24,7 +24,11 @@ The static pages can be served with `python3 -m http.server 8000` from the repo 
 - **`index.html` + `landing.js` + `landing.css`** (repo root) is the landing page.
   - It loads `stream-platform/styles.css` for tokens/reset and `stream-platform/skills.js` for the skill chips. Links into the app are prefixed with `stream-platform/`.
   - Its login dialog is real auth via Better Auth, with 2FA required for every account. The steps are: credentials → enroll an authenticator (QR from `totpURI`, backup codes) → or, on later logins, verify the TOTP/backup code → redirect to `stream-platform/`.
-  - The app pages' "Log In"/"Sign Up" buttons link to `../index.html#login` / `#signup`.
+  - After login it redirects to `?next=` (only `/stream-platform/...` paths), else `/stream-platform/`.
+- **`stream-platform/auth-guard.js`** gates the app and is loaded first in `<head>` of every app page (add it to any new page).
+  - It hides the page until `/api/auth/get-session` returns a user; otherwise it redirects to `/?next=<page>#login`, failing closed.
+  - When signed in, it swaps the nav's Log In/Sign Up links for the user's name and a Log out button.
+  - The gate is client-side only, which is fine while app content is static mock data. Real per-user data must be protected server-side.
   - `auth-client.js` is a small `fetch` wrapper for the REST endpoints; sessions are httpOnly cookies on path `/`.
   - QR codes come from `qrcode-generator` on cdnjs.
 - **`lib/auth.js`** holds the Better Auth config (email+password, `twoFactor()` plugin, `pg` Pool).

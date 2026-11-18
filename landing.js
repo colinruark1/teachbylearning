@@ -51,6 +51,16 @@ $("#skillChips").innerHTML = SKILLS.map((s) => `
   </li>`).join("");
 
 /* ---------- Login dialog (Better Auth + 2FA) ---------- */
+let signedIn = false;
+// The app requires login, so a skill chip opens sign-up first for signed-out visitors.
+$("#skillChips").addEventListener("click", (e) => {
+  const a = e.target.closest(".skill-chip");
+  if (!a || signedIn) return;
+  e.preventDefault();
+  history.replaceState(null, "", `?next=${encodeURIComponent("/" + a.getAttribute("href"))}`);
+  openLogin("signup");
+});
+
 const dlg = $("#loginDialog");
 const credForm = $("#credForm"), enrollForm = $("#enrollForm"), verifyForm = $("#verifyForm");
 const errEl = $("#loginErr");
@@ -89,7 +99,12 @@ const setMode = (m) => {
 };
 
 const openLogin = (m = "login") => { if (!dlg.open) dlg.showModal(); setMode(m); };
-const finish = () => { password = ""; location.href = "stream-platform/"; };
+// After login, return to the app page that sent the visitor here (?next=), else the Browse page.
+const nextUrl = () => {
+  const next = new URLSearchParams(location.search).get("next") || "";
+  return next.startsWith("/stream-platform/") ? next : "/stream-platform/";
+};
+const finish = () => { password = ""; location.href = nextUrl(); };
 
 // Disable a form's submit button while a request is in flight.
 const busy = async (form, fn) => {
@@ -184,16 +199,17 @@ document.querySelectorAll("[data-open-login]").forEach((btn) =>
 // Other pages link here as index.html#login / #signup.
 if (location.hash === "#login" || location.hash === "#signup") {
   openLogin(location.hash.slice(1));
-  history.replaceState(null, "", location.pathname);
+  history.replaceState(null, "", location.pathname + location.search);
 }
 
 // Signed in already? Swap the nav buttons for "Go to streams" + "Log out".
 Auth.getSession().then((s) => {
   if (!s?.user) return;
+  signedIn = true;
   const actions = $(".lnav__actions");
   actions.innerHTML = `
     <button class="btn btn--secondary" id="logoutBtn">Log out</button>
-    <a class="btn btn--primary" href="stream-platform/">Go to streams</a>`;
+    <a class="btn btn--primary" href="${nextUrl()}">Go to streams</a>`;
   $("#logoutBtn").addEventListener("click", async () => {
     try { await Auth.signOut(); } finally { location.reload(); }
   });

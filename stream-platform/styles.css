@@ -49,6 +49,9 @@ h2, h3, p { margin: 0; }
 
 /* ---------- Buttons ---------- */
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 30px;
   padding: 0 10px;
   border-radius: var(--radius);

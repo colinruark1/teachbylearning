@@ -185,24 +185,6 @@ async function meApi(path, { method = "GET", body } = {}) {
   return data;
 }
 
-// Images are downscaled to JPEG data URLs before upload.
-function downscale(file, max = 1280) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const im = new Image();
-    im.onload = () => {
-      const k = Math.min(1, max / Math.max(im.width, im.height));
-      const cv = document.createElement("canvas");
-      cv.width = Math.round(im.width * k);
-      cv.height = Math.round(im.height * k);
-      cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height);
-      URL.revokeObjectURL(url);
-      resolve(cv.toDataURL("image/jpeg", 0.82));
-    };
-    im.onerror = () => (URL.revokeObjectURL(url), reject(new Error("That file isn't an image we can read.")));
-    im.src = url;
-  });
-}
 
 /* ---------- Phone reminders: phone + code form ---------- */
 

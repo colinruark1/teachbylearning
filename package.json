@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "vercel dev",
     "migrate": "npx auth@1.7.26 migrate --config lib/auth.js --yes && node scripts/migrate.js",
-    "bot:dev": "node scripts/dev-bot.js",
-    "telegram:webhook": "node scripts/telegram-webhook.js"
+    "reminders:dev": "node scripts/dev-reminders.js",
+    "linq:webhook": "node scripts/linq-webhook.js"
   },
   "dependencies": {
     "better-auth": "1.7.26",

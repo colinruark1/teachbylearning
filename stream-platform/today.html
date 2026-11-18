@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Today · Teach by Learning</title>
-  <script src="auth-guard.js?v=2"></script>
+  <script src="auth-guard.js?v=3"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=3" />
-  <link rel="stylesheet" href="habits.css?v=1" />
+  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="habits.css?v=2" />
 </head>
 <body class="habits-page">
   <!-- Top navigation -->
@@ -63,7 +63,8 @@
       <aside class="today__aside">
         <section class="panel" aria-labelledby="remindTitle">
           <h2 class="panel__title" id="remindTitle">Reminders</h2>
-          <div id="tgPanel"></div>
+          <p class="muted">A text before each session, and a check-in afterward if you haven't logged it.</p>
+          <div class="phone-box" id="phonePanel"></div>
         </section>
         <section class="panel" aria-labelledby="commitTitle">
           <h2 class="panel__title" id="commitTitle">Your commitments</h2>
@@ -78,7 +79,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="skills.js?v=3"></script>
-  <script src="habits.js?v=1"></script>
-  <script src="today.js?v=1"></script>
+  <script src="habits.js?v=2"></script>
+  <script src="today.js?v=2"></script>
 </body>
 </html>

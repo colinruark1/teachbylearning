@@ -1,5 +1,5 @@
 // Onboarding: 1) pick the habits to practice, 2) write a commitment statement for each
-// (parsed into days + time for the reminder bot), 3) connect Telegram for reminders.
+// (parsed into days + time for the reminder bot), 3) add a phone number for text reminders.
 // New accounts land here from auth-guard.js until POST /api/me/onboarding succeeds.
 // Revisiting the page edits the existing commitments.
 
@@ -23,8 +23,7 @@ const state = {
   step: 1,
   selected: new Set(),      // habit ids, in HABITS order when rendered
   drafts: {},               // habitId → { statement, days, time, remindBefore, touchedDays, touchedTime }
-  telegram: { configured: false, linked: false },
-  telegramUrl: "",
+  phone: { configured: false, phone: null, verified: false, pending: false },
   editing: false,
 };
 
@@ -191,9 +190,6 @@ async function saveCommitments(e) {
 
 /* ---------- Step 3: reminders ---------- */
 
-let pollTimer;
-const stopPolling = () => clearInterval(pollTimer);
-
 function samplePing() {
   const h = chosen()[0] || HABITS[0];
   const d = draftFor(h.id);
@@ -204,76 +200,48 @@ function samplePing() {
     leetcode: `LeetCode at ${fmtTime(d.time)}. Pick your problem now so you can start on time.`,
   };
   return `
-    <figure class="ping" aria-label="Example reminder">
+    <figure class="ping" aria-label="Example reminder text">
       <span class="ping__time">${fmtTime(minusMinutes(d.time, d.remindBefore))}</span>
-      <p class="ping__bubble">${esc(lines[h.id])}<br /><span class="ping__quote">You said: “${esc(d.statement.trim() || h.example)}”</span></p>
-      <div class="ping__buttons"><span>💪 On my way</span><span>Skip today</span></div>
+      <p class="ping__bubble">${esc(lines[h.id])}<br /><span class="ping__quote">You said: “${esc(d.statement.trim() || h.example)}”</span>
+        <span class="ping__reply">Reply SKIP to take today off.</span></p>
+      <p class="ping__bubble ping__bubble--me">On my way 💪</p>
     </figure>`;
 }
 
-function telegramBlock() {
-  const t = state.telegram;
-  if (!t.configured) {
-    return `<div class="notice">Reminders aren't switched on for this server yet. Your commitments are saved;
-      you can connect reminders from the Today page once they are.</div>`;
-  }
-  if (t.linked) {
-    return `<div class="notice notice--ok">
-      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span><b>Telegram connected.</b> Your first nudge arrives before your next session.</span></div>`;
-  }
-  return `
-    <ol class="tg-steps">
-      <li>Install Telegram if you don't have it (free on iPhone, Android and desktop).</li>
-      <li>Tap <b>Connect Telegram</b>, then press <b>Start</b> in the chat that opens.</li>
-      <li>Come back here. This page updates on its own.</li>
-    </ol>
-    <a class="btn btn--tg btn--lg" id="tgConnect" href="${esc(state.telegramUrl) || "#"}" target="_blank" rel="noopener"
-      ${state.telegramUrl ? "" : 'aria-disabled="true"'}>Connect Telegram</a>
-    <p class="muted tg-wait" id="tgWait" hidden>Waiting for you to press Start in Telegram…</p>`;
-}
-
 function renderReminders() {
-  const t = state.telegram;
+  const p = state.phone;
+  const ready = !p.configured || p.verified;
   main.innerHTML = `
     <section class="ob__step">
       <p class="eyebrow">Step 3 of 3</p>
       <h1 class="ob__title">Let us hold you to it.</h1>
-      <p class="ob__sub">Before each session our bot sends you a nudge, and if you haven't logged it afterward, it checks in.
-        Text messages are on the way; for now the bot lives in Telegram, which is free.</p>
+      <p class="ob__sub">We'll text you before each session, and check in afterward if you haven't logged it.
+        Reply to the texts to skip a day or see what's left.</p>
       <div class="ob__reminders">
-        <div class="tg">${telegramBlock()}</div>
+        <div class="phone-box" id="phoneBox"></div>
         ${samplePing()}
       </div>
       <div class="ob__actions">
         <button type="button" class="btn btn--secondary btn--lg" data-go="2">Back</button>
         <span class="ob__spacer"></span>
-        ${t.configured && !t.linked ? `<a class="link-btn ob__skip" href="${esc(nextUrl)}">Skip for now</a>` : ""}
-        <a class="btn btn--primary btn--lg" href="${esc(nextUrl)}" ${t.configured && !t.linked ? "hidden" : ""} id="obFinish">
+        ${ready ? "" : `<a class="link-btn ob__skip" href="${esc(nextUrl)}">Skip for now</a>`}
+        <a class="btn btn--primary btn--lg" href="${esc(nextUrl)}" ${ready ? "" : "hidden"} id="obFinish">
           ${state.editing ? "Done" : "Start my streak"}</a>
       </div>
     </section>`;
-
-  stopPolling();
-  if (!t.configured || t.linked) return;
-  if (!state.telegramUrl) {
-    meApi("telegram/link", { method: "POST" })
-      .then(({ url }) => { state.telegramUrl = url; if (state.step === 3) renderReminders(); })
-      .catch((e) => toast(e.message));
-    return;
-  }
-  pollTimer = setInterval(async () => {
-    try {
-      const s = await meApi("telegram");
-      if (s.linked) { state.telegram = s; stopPolling(); renderReminders(); toast("Telegram connected!"); }
-    } catch { /* keep polling */ }
-  }, 3000);
+  bindPhoneForm($("#phoneBox"), () => state.phone, (s) => {
+    const wasVerified = state.phone.verified;
+    state.phone = s;
+    if (s.verified && !wasVerified) toast("You're connected! Check your texts.");
+    const ok = !s.configured || s.verified;
+    $("#obFinish").hidden = !ok;
+    main.querySelector(".ob__skip")?.toggleAttribute("hidden", ok);
+  });
 }
 
 /* ---------- Navigation ---------- */
 
 function go(step) {
-  stopPolling();
   state.step = step;
   document.querySelectorAll("#obProgress li").forEach((li) => {
     const n = Number(li.dataset.n);
@@ -305,10 +273,6 @@ main.addEventListener("click", (e) => {
   }
   const nav = e.target.closest("[data-go]");
   if (nav) go(Number(nav.dataset.go));
-  if (e.target.closest("#tgConnect")) {
-    if (!state.telegramUrl) { e.preventDefault(); return; }
-    $("#tgWait").hidden = false;
-  }
 });
 
 main.addEventListener("input", (e) => {
@@ -338,7 +302,7 @@ main.addEventListener("submit", (e) => { if (e.target.id === "commitForm") saveC
   main.innerHTML = `<p class="muted ob__loading">Loading…</p>`;
   try {
     const s = await meApi("state");
-    state.telegram = s.telegram;
+    state.phone = s.phone;
     state.editing = s.user.onboarded;
     for (const c of s.commitments) {
       if (!habitById(c.habit)) continue;

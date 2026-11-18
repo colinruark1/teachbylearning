@@ -102,6 +102,9 @@ $("#categoryGrid").innerHTML = CATEGORIES.map(
   </article>`
 ).join("");
 
+// ---------- Learn a New Skill shelf (SKILLS/skillCard from skills.js) ----------
+$("#skillGrid").innerHTML = SKILLS.map((s) => skillCard(s, `${fmtCount(s.learners)} learners`)).join("");
+
 // ---------- Hero carousel ----------
 const featured = STREAMS.slice(0, 5);
 let heroIndex = 0;

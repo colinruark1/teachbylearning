@@ -2,7 +2,7 @@
 // learning (LIVE_STREAMS), a progress feed sorted by popularity, and a discussion forum.
 // The hub lets members request new communities and upvote requests (REQUESTS); a request
 // that reaches REQUEST_GOAL is ready to open as a new SKILLS entry.
-// Mock data persisted to localStorage. Replace `load`/`persist` with a real API and
+// Posts, joins and requests are persisted to localStorage (no fake users). Replace `load`/`persist` with a real API and
 // `LIVE_STREAMS` with the streaming backend. Strava is real: /api/strava (api/strava.js)
 // handles OAuth and lists the signed-in user's own activities.
 
@@ -53,39 +53,17 @@ const ICONS = {
   live: ico('<circle cx="10" cy="10" r="2"/><path d="M6.5 6.5a5 5 0 0 0 0 7M13.5 6.5a5 5 0 0 1 0 7M4 4a8.5 8.5 0 0 0 0 12M16 4a8.5 8.5 0 0 1 0 12"/>'),
 };
 
-// ---------- Mock live streams: members streaming themselves learning ----------
-// startedH: hours since the stream went live.
-const LIVE_STREAMS = [
-  { skill: "writing", sub: "Creative Writing", user: "QuietQuill", hue: 180, viewers: 412, startedH: 1.4, title: "Writing sprint: 2,000 words of my fantasy novel — come write along" },
-  { skill: "writing", sub: "Professional Writing", user: "Devon Okafor", hue: 200, viewers: 96, startedH: 0.5, title: "Rewriting my résumé bullets live — roast them" },
-  { skill: "art", sub: "Digital Art", user: "Ines Calder", hue: 280, viewers: 1830, startedH: 2.2, title: "Painting a forest spirit from thumbnail to final" },
-  { skill: "art", sub: "Sketching", user: "Theo Marsh", hue: 160, viewers: 640, startedH: 0.8, title: "Day 61 of hand studies — 30-second gestures" },
-  { skill: "art", sub: "Painting", user: "Ben Whitaker", hue: 140, viewers: 88, startedH: 0.3, title: "First time with cotton watercolor paper" },
-  { skill: "cooking", sub: "Baking", user: "Sam Rivera", hue: 15, viewers: 2210, startedH: 3.1, title: "Sourdough #7 — shaping and scoring, Q&A while it proofs" },
-  { skill: "cooking", sub: "Preparing Meals", user: "ChillChef", hue: 30, viewers: 1340, startedH: 1.1, title: "Fresh pasta from scratch, no pasta machine 🍝" },
-  { skill: "speaking", sub: "Presenting", user: "Alexis Grant", hue: 220, viewers: 154, startedH: 0.6, title: "Practicing my conference talk — timed run, feedback welcome" },
-  { skill: "instrument", sub: "Guitar", user: "Leo Brandt", hue: 45, viewers: 920, startedH: 1.7, title: "Learning 'Blackbird' fingerstyle at 60 bpm" },
-  { skill: "instrument", sub: "Piano", user: "Hana Sato", hue: 300, viewers: 505, startedH: 0.9, title: "Clair de Lune page 2 — slow practice, wrong notes included" },
-  { skill: "language", sub: "Spanish", user: "Lucía Ortega", hue: 10, viewers: 1120, startedH: 0.4, title: "Language exchange 🇪🇸🇬🇧 — hop in chat and practice" },
-  { skill: "language", sub: "Japanese", user: "Marco Bellini", hue: 120, viewers: 310, startedH: 2.5, title: "Reading my first graded reader out loud (N4)" },
-  { skill: "reading", sub: "Reading More Often", user: "Priya Nair", hue: 350, viewers: 260, startedH: 1.0, title: "Silent reading co-work — 50 min on, 10 off" },
-  { skill: "fitness", sub: "Weightlifting", user: "Marcus Hale", hue: 260, viewers: 1675, startedH: 0.7, title: "Deadlift day — working up to a 145 kg triple" },
-  { skill: "fitness", sub: "Running", user: "Nadia Kerr", hue: 5, viewers: 730, startedH: 0.2, title: "Treadmill 10K, chat picks my playlist" },
-  { skill: "photography", sub: "Editing Photos", user: "Ravi Menon", hue: 185, viewers: 480, startedH: 1.3, title: "Editing last night's street photos — viewer RAW files welcome" },
-  { skill: "dancing", sub: "Learning Routines", user: "Jordan Lee", hue: 340, viewers: 990, startedH: 0.5, title: "Learning a new routine from zero in one stream 💃" },
-];
+// ---------- Live streams: members streaming themselves learning ----------
+// Empty until the streaming backend exists. Shape: { skill, sub, user, hue, viewers, startedH, title }
+// (startedH: hours since the stream went live).
+const LIVE_STREAMS = [];
 const liveIn = (skillId, sub) =>
   LIVE_STREAMS.filter((s) => s.skill === skillId && (!sub || s.sub === sub)).sort((a, b) => b.viewers - a.viewers);
 
 // ---------- Community requests (the list of communities keeps growing from these) ----------
 const REQUEST_GOAL = 250;
-const seedRequests = () => [
-  { id: uid(), name: "Coding", votes: 231, voted: false },
-  { id: uid(), name: "Chess", votes: 188, voted: false },
-  { id: uid(), name: "Gardening", votes: 142, voted: false },
-  { id: uid(), name: "Woodworking", votes: 97, voted: false },
-  { id: uid(), name: "Knitting", votes: 64, voted: false },
-];
+// Names of the old demo requests, removed from saved state by load().
+const DEMO_REQUESTS = ["Coding", "Chess", "Gardening", "Woodworking", "Knitting"];
 
 // "Popular": engagement that fades with age, so a great post from today beats an old one.
 const score = (p) => (p.likes + 2 * p.comments.length) / Math.pow((Date.now() - p.t) / HOUR + 2, 0.6);
@@ -110,141 +88,6 @@ async function loadStrava() {
   refreshStrava();
 }
 
-// ---------- Seed posts ----------
-const U = {
-  mara: ["Mara Ellison", 330], devon: ["Devon Okafor", 200], theo: ["Theo Marsh", 160], ines: ["Ines Calder", 280],
-  sam: ["Sam Rivera", 15], jun: ["Jun Park", 95], alexis: ["Alexis Grant", 220], leo: ["Leo Brandt", 45],
-  hana: ["Hana Sato", 300], marco: ["Marco Bellini", 120], lucia: ["Lucía Ortega", 10], claire: ["Claire Dubois", 240],
-  omar: ["Omar Haddad", 60], nadia: ["Nadia Kerr", 5], marcus: ["Marcus Hale", 260], ravi: ["Ravi Menon", 185],
-  jordan: ["Jordan Lee", 340], priya: ["Priya Nair", 350], ben: ["Ben Whitaker", 140],
-};
-const by = (k) => ({ user: U[k][0], hue: U[k][1] });
-const c = (k, body, h) => ({ id: uid(), ...by(k), body, t: ago(h) });
-const img = (label) => ({ type: "image", label });
-const vid = (label) => ({ type: "video", label });
-const post = (k, o) => ({
-  id: uid(), kind: "progress", title: null, minutes: null, media: [], strava: null,
-  comments: [], likes: 0, liked: false, ...by(k), ...o, t: ago(o.h),
-});
-const thread = (k, o) => post(k, { kind: "thread", ...o });
-
-function seedPosts() {
-  return [
-    // Writing
-    post("mara", { skill: "writing", sub: "Creative Writing", h: 3, minutes: 90, likes: 42, media: [img("Draft, page 1")],
-      body: "Finished the first draft of my short story! 4,200 words about a lighthouse keeper who collects lost letters. It's messy but it EXISTS.",
-      comments: [c("priya", "That premise is so good. Do you share drafts with a group?", 2), c("mara", "Not yet — might post an excerpt in Discussions this week!", 1)] }),
-    post("priya", { skill: "writing", sub: "Storytelling", h: 30, minutes: 20, likes: 18,
-      body: "Day 30 of morning pages ✅ Three pages every day before coffee. Biggest change: I stopped waiting to feel inspired." }),
-    thread("devon", { skill: "writing", sub: "Professional Writing", h: 20, likes: 9,
-      title: "How do you cut a two-page cover letter down to one?",
-      body: "Every time I edit I end up cutting the parts that actually sound like me. Any frameworks for deciding what stays?",
-      comments: [c("mara", "One story, one number, one reason you want *this* job. Everything else goes.", 18), c("ben", "Read it out loud. Any sentence you rush through is a sentence you can delete.", 12)] }),
-
-    // Drawing / Art
-    post("theo", { skill: "art", sub: "Sketching", h: 6, minutes: 45, likes: 128, media: [img("Day 1"), img("Day 30")],
-      body: "One month of daily hand studies — left is day 1, right is day 30. Hands are still terrifying but less so.",
-      comments: [c("ines", "The knuckle structure on day 30 is a huge jump!", 5), c("jordan", "Saving this for motivation 🙌", 4)] }),
-    post("ines", { skill: "art", sub: "Digital Art", h: 40, minutes: 180, likes: 76, media: [img("Forest spirit — final")],
-      body: "First full digital painting I'm actually proud of. Learned to block in values in grayscale before adding any color." }),
-    thread("ben", { skill: "art", sub: "Painting", h: 55, likes: 6,
-      title: "Watercolor paper recommendations for a beginner?",
-      body: "Student-grade paper keeps pilling when I layer. Is 100% cotton worth it this early?",
-      comments: [c("ines", "Yes — cotton paper makes learning washes so much easier. Buy a small block so it's not expensive.", 50)] }),
-
-    // Cooking
-    post("sam", { skill: "cooking", sub: "Baking", h: 2, minutes: 240, likes: 214, media: [img("Crumb shot"), img("Crust")],
-      body: "Sourdough attempt #6 — finally got an open crumb! Key change: a longer bulk ferment (6h at 24°C) and a gentler shape.",
-      comments: [c("jun", "Attempt 6 and it looks like that?! What flour?", 1.5), c("sam", "70% bread flour, 30% whole wheat. Nothing fancy.", 1), c("lucia", "Bookmarking the bulk ferment tip.", 0.5)] }),
-    post("jun", { skill: "cooking", sub: "Preparing Meals", h: 26, minutes: 60, likes: 37, media: [img("Five lunches")],
-      body: "Meal-prepped five lunches for under $25: gochujang chicken, rice, and quick-pickled cucumbers." }),
-    thread("omar", { skill: "cooking", sub: "Learning Recipes", h: 70, likes: 14,
-      title: "What's a good 'first real recipe' to build fundamentals?",
-      body: "I can follow recipes but I don't understand *why* they work. Looking for a dish that teaches technique.",
-      comments: [c("sam", "A simple pan sauce. Sear, deglaze, reduce, mount with butter — it teaches heat control.", 60)] }),
-
-    // Public Speaking
-    post("alexis", { skill: "speaking", sub: "Presenting", h: 8, minutes: 20, likes: 58, media: [vid("Rehearsal take 3")],
-      body: "Recorded my 5-minute talk rehearsal. Cut my 'um's from 23 down to 7 since last week. Feedback welcome!",
-      comments: [c("claire", "Your pacing in the second half is great. Maybe pause longer before the key stat?", 6)] }),
-    thread("priya", { skill: "speaking", sub: "Speaking Confidently", h: 48, likes: 21,
-      title: "How do you handle your mind going blank mid-talk?",
-      body: "It happened in a team meeting today and I just froze for what felt like a full minute.",
-      comments: [c("alexis", "Repeat your last sentence slowly. It buys time and sounds like emphasis.", 40), c("devon", "Keep a one-line outline on a card. Just knowing it's there helps.", 30)] }),
-
-    // Playing an Instrument
-    post("leo", { skill: "instrument", sub: "Guitar", h: 4, minutes: 35, likes: 97, media: [vid("F chord progression")],
-      body: "Finally nailed the F barre chord cleanly 🎸 Three weeks of buzzing. Rolling my index finger slightly onto its side was the trick." }),
-    post("hana", { skill: "instrument", sub: "Piano", h: 34, minutes: 50, likes: 64,
-      body: "Played the first page of Clair de Lune all the way through without stopping. Slow, but every note was there." }),
-    thread("ben", { skill: "instrument", sub: "Drums", h: 80, likes: 5,
-      title: "Practice pad vs. electronic kit for apartment living?",
-      body: "Neighbors are already side-eyeing me. Is a pad enough to build real skills?",
-      comments: [c("leo", "Pad for rudiments, then rent rehearsal space once a week for the full kit.", 70)] }),
-
-    // Learning a Language (forum-first)
-    thread("marco", { skill: "language", sub: "Japanese", h: 5, likes: 23,
-      title: "Finished Genki I — what should come next?",
-      body: "I know about 300 kanji and can handle basic conversations. Genki II, or start on graded readers?",
-      comments: [c("hana", "Both! Genki II for grammar, plus Tadoku graded readers for volume.", 4), c("claire", "Add a weekly tutor session if you can. Speaking is what plateaus first.", 3)] }),
-    thread("lucia", { skill: "language", sub: "Spanish", h: 22, likes: 31,
-      title: "Language exchange partner thread 🇪🇸 — introduce yourself here",
-      body: "Native Spanish speaker learning English. Say what level you're at and when you're free, and let's pair up!",
-      comments: [c("omar", "A2 Spanish, free weekday evenings (EST). Would love to practice!", 20), c("jun", "B1, mostly weekends. Interested in food vocab 😄", 15)] }),
-    thread("claire", { skill: "language", sub: "French", h: 60, likes: 8,
-      title: "Is the subjunctive worth drilling early?",
-      body: "My textbook introduces it in chapter 4 and I'm struggling. Should I just push past it?",
-      comments: [] }),
-    post("omar", { skill: "language", sub: "Spanish", h: 12, minutes: 25, likes: 45,
-      body: "A 300-day streak, but more importantly: my first 10-minute conversation with my neighbor entirely in Spanish." }),
-
-    // Reading (forum-first)
-    thread("ben", { skill: "reading", sub: "Reading More Often", h: 9, likes: 27,
-      title: "What's your trick for reading more often?",
-      body: "Mine: a book in every room. Paperback by the couch, ebook on my phone, audiobook for walks.",
-      comments: [c("priya", "I swapped 20 minutes of scrolling in bed for reading. 9 books so far this year.", 7)] }),
-    thread("devon", { skill: "reading", sub: "Comprehension", h: 44, likes: 12,
-      title: "Annotating vs. summarizing after each chapter — which sticks better?",
-      body: "Testing both on nonfiction. Curious what has worked for others.",
-      comments: [c("mara", "A three-sentence summary from memory, then check the chapter. Retrieval beats highlighting.", 40)] }),
-    post("priya", { skill: "reading", sub: "Reading Faster", h: 50, minutes: 40, likes: 19,
-      body: "Book 12 of the year done. I don't really read faster — I just stopped subvocalizing on easy passages." }),
-
-    // Fitness (Strava)
-    post("nadia", { skill: "fitness", sub: "Running", h: 1, minutes: 62, likes: 156,
-      strava: { type: "Run", name: "First double digits!", distanceKm: 10.2, movingSec: 3712, elevM: 48, seed: 5 },
-      body: "First double-digit run! 10.2 km without walking breaks. Six months ago I couldn't run to the end of my street.",
-      comments: [c("marcus", "HUGE. Congrats!", 0.8), c("ravi", "That negative split though 👀", 0.5)] }),
-    post("marcus", { skill: "fitness", sub: "Weightlifting", h: 18, minutes: 70, likes: 88, media: [vid("PR set")],
-      body: "Deadlift PR: 140 kg × 3. Bracing cue that finally clicked: 'bend the bar around your shins.'" }),
-    post("claire", { skill: "fitness", sub: "Flexibility", h: 36, minutes: 20, likes: 41,
-      body: "Day 45 of my splits routine — 15 cm from the floor now. Consistency beats intensity." }),
-    thread("jordan", { skill: "fitness", sub: "Running", h: 66, likes: 17,
-      title: "Couch to 5K graduates — what did you do next?",
-      body: "Just finished C25K and I'm not sure whether to train for a 10K or work on speed.",
-      comments: [c("nadia", "10K plan! Building distance slowly was the most fun part for me.", 60)] }),
-
-    // Photography
-    post("ravi", { skill: "photography", sub: "Taking Photos", h: 7, minutes: 90, likes: 133,
-      media: [img("Golden hour, bridge"), img("Reflections"), img("Street corner")],
-      body: "Golden hour walk with a 35mm prime. Forcing myself to use one focal length is teaching me to move my feet." }),
-    post("jun", { skill: "photography", sub: "Editing Photos", h: 46, minutes: 30, likes: 52, media: [img("Before"), img("After")],
-      body: "Before and after of my first real edit. Lowered highlights, warmed white balance, and a gentle S-curve." }),
-    thread("theo", { skill: "photography", sub: "Taking Photos", h: 90, likes: 11,
-      title: "Best way to learn manual mode?",
-      body: "Auto mode feels like a crutch, but every time I switch to manual my photos get worse.",
-      comments: [c("ravi", "Start with aperture priority for a month and only control depth of field. Then add shutter.", 85)] }),
-
-    // Dancing
-    post("jordan", { skill: "dancing", sub: "Learning Routines", h: 11, minutes: 60, likes: 110, media: [vid("Chorus run-through")],
-      body: "Learned the full chorus choreography in one weekend 💃 Breaking it into 8-counts and drilling at 0.75× speed made it doable." }),
-    thread("hana", { skill: "dancing", sub: "Rhythm", h: 58, likes: 15,
-      title: "Drills for staying on beat when the music is fast?",
-      body: "I lose the count during quick sections and end up rushing.",
-      comments: [c("jordan", "Clap only the downbeats along with the song, then add steps. Feeling the 1 is everything.", 50)] }),
-  ];
-}
-
 // ---------- Store (localStorage, falls back to memory) ----------
 const STORE_KEY = "tbl.learn.v1";
 
@@ -253,11 +96,21 @@ function load() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const saved = JSON.parse(raw);
-      saved.requests ??= seedRequests(); // saved before requests existed
+      // Earlier versions seeded demo posts, comments and requests from made-up users. Keep only yours.
+      if (!saved.real) {
+        saved.posts = (saved.posts || [])
+          .filter((p) => p.user === ME.user)
+          .map((p) => ({ ...p, comments: p.comments.filter((c) => c.user === ME.user) }));
+        saved.requests = (saved.requests || [])
+          .filter((r) => r.voted && !DEMO_REQUESTS.includes(r.name))
+          .map((r) => ({ ...r, votes: 1 }));
+        saved.real = true;
+      }
+      saved.requests ??= [];
       return saved;
     }
   } catch {}
-  return { posts: seedPosts(), joined: [], requests: seedRequests() };
+  return { posts: [], joined: [], requests: [], real: true };
 }
 
 const state = load();
@@ -635,7 +488,7 @@ function communityGridHTML() {
   }
   return `<div class="skill-grid">${list
     .map((s) =>
-      skillCard(s, `${fmtCount(s.learners + (state.joined.includes(s.id) ? 1 : 0))} members · ${plural(counts[s.id] || 0, "post")}`, liveIn(s.id).length)
+      skillCard(s, `${state.joined.includes(s.id) ? "Joined · " : ""}${plural(counts[s.id] || 0, "post")}`, liveIn(s.id).length)
     )
     .join("")}</div>`;
 }
@@ -680,18 +533,23 @@ function renderHub() {
 
     <section class="shelf">
       <h2 class="shelf__title"><span class="live-dot"></span> Live now: learning on stream</h2>
-      <div class="stream-grid">${live.map((st) => streamCard(st, true)).join("")}</div>
+      ${live.length
+        ? `<div class="stream-grid">${live.map((st) => streamCard(st, true)).join("")}</div>`
+        : `<p class="empty">Nobody's streaming right now. Check back soon.</p>`}
     </section>
 
     <div class="learn-cols">
       <section class="shelf">
         <h2 class="shelf__title">Popular progress</h2>
-        <div class="feed">${popular.map((p) => postCard(p, true)).join("")}</div>
+        ${popular.length
+          ? `<div class="feed">${popular.map((p) => postCard(p, true)).join("")}</div>`
+          : `<p class="empty">No progress posts yet. Open a community and share where you're starting from!</p>`}
       </section>
       <aside class="learn-aside">
         ${requestsHTML()}
         <section class="panel">
           <h2 class="panel__title">Active discussions</h2>
+          ${discussions.length ? "" : `<p class="muted">No discussions yet.</p>`}
           <ul class="discussion-list">${discussions
             .map(
               (p) => `<li><a href="${skillHref(p.skill, { tab: "forum", thread: p.id })}">
@@ -727,7 +585,7 @@ function renderSkill() {
       <div class="skill-head__text">
         <h1 class="skill-head__name">${s.name}</h1>
         <p class="skill-head__blurb">${s.blurb}</p>
-        <p class="skill-head__stats">${fmtCount(s.learners + (joined ? 1 : 0))} members · ${plural(inSkill.length, "post")}${
+        <p class="skill-head__stats">${plural(inSkill.length, "post")}${
           live.length ? ` · <span class="live-dot"></span>${live.length} live now` : ""}</p>
       </div>
       <button class="btn ${joined ? "btn--secondary" : "btn--primary"}" data-action="join" aria-pressed="${joined}">${joined ? "Joined ✓" : "Join community"}</button>

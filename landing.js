@@ -4,9 +4,7 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 
 /* ---------- Hero stats ---------- */
-const totalLearners = SKILLS.reduce((n, s) => n + s.learners, 0);
 $("#heroStats").innerHTML = [
-  [fmtCount(totalLearners), "learners"],
   [SKILLS.length, "skills"],
   ["37.8×", "in a year"],
 ].map(([v, l]) => `<li><b>${v}</b><span>${l}</span></li>`).join("");
@@ -46,7 +44,7 @@ $("#skillChips").innerHTML = SKILLS.map((s) => `
     <a class="skill-chip" href="stream-platform/${skillHref(s.id)}" style="--hue:${s.hue}">
       <span class="skill-chip__ico">${s.icon}</span>
       <span class="skill-chip__name">${s.name}</span>
-      <span class="skill-chip__meta">${fmtCount(s.learners)} learners</span>
+      <span class="skill-chip__meta">${s.subs.length} topics</span>
     </a>
   </li>`).join("");
 

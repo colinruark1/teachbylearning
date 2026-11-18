@@ -1,46 +1,36 @@
 // Signed-in user's habit data. vercel.json rewrites /api/me/<path> to /api/me?__path=<path>.
 //
-//   GET    /api/me/state            commitments, recent check-ins, streak days, Telegram status
+//   GET    /api/me/state            commitments, recent check-ins, streak days, text-reminder status
 //   POST   /api/me/onboarding       save chosen habits + commitments; marks onboarding done
 //   POST   /api/me/checkins         log a session: proof, details, reflection
 //   DELETE /api/me/checkins/:id
 //   GET    /api/me/proof/:id        a check-in's photo (image/jpeg)
-//   GET    /api/me/telegram         { configured, linked }
-//   POST   /api/me/telegram/link    one-time t.me deep link for connecting the bot
-//   DELETE /api/me/telegram         disconnect
-import { randomBytes } from "node:crypto";
-import { auth } from "../lib/auth.js";
+//   GET    /api/me/phone            { configured, phone, verified, pending }
+//   POST   /api/me/phone            { phone } → texts a 6-digit code (via Linq)
+//   POST   /api/me/phone/verify     { code } → turns text reminders on
+//   DELETE /api/me/phone            turn text reminders off
+import { HttpError, bad, json, str, requireUser, readBody, handler } from "../lib/http.js";
 import { pool } from "../lib/db.js";
 import { isHabit, isTimeZone } from "../lib/habits.js";
-import { telegramConfigured } from "../lib/telegram.js";
-
-class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
-}
-const bad = (msg) => { throw new HttpError(400, msg); };
-
-const json = (data, status = 200) => new Response(JSON.stringify(data), {
-  status, headers: { "content-type": "application/json", "cache-control": "no-store" },
-});
-
-async function requireUser(request) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user) throw new HttpError(401, "Sign in first.");
-  if (!session.user.twoFactorEnabled) throw new HttpError(403, "Finish setting up two-factor authentication first.");
-  return session.user;
-}
-
-const str = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+import { linqConfigured, toE164 } from "../lib/linq.js";
+import { startVerification, confirmVerification } from "../lib/sms.js";
 
 /* ---------- State ---------- */
 
-async function telegramStatus(userId) {
-  const { rows } = await pool.query("select chat_id from telegram_link where user_id = $1", [userId]);
-  return { configured: telegramConfigured(), linked: Boolean(rows[0]?.chat_id) };
+async function phoneStatus(userId) {
+  const { rows } = await pool.query(
+    "select phone, verified_at, code_hash from phone_link where user_id = $1", [userId]);
+  const r = rows[0];
+  return {
+    configured: linqConfigured(),
+    phone: r?.phone ?? null,
+    verified: Boolean(r?.verified_at),
+    pending: Boolean(r?.code_hash),   // a code was sent and not yet confirmed
+  };
 }
 
 async function getState(user) {
-  const [commitments, checkins, days, telegram] = await Promise.all([
+  const [commitments, checkins, days, phone] = await Promise.all([
     pool.query(
       `select habit, statement, days, to_char(time_local, 'HH24:MI') as time, timezone,
               remind_before_min as "remindBefore"
@@ -53,14 +43,14 @@ async function getState(user) {
     pool.query(
       `select distinct day from habit_checkin
        where user_id = $1 and day > current_date - 400 order by day desc`, [user.id]),
-    telegramStatus(user.id),
+    phoneStatus(user.id),
   ]);
   return {
     user: { name: user.name, onboarded: Boolean(user.onboardedAt) },
     commitments: commitments.rows,
     checkins: checkins.rows,
     activeDays: days.rows.map((r) => r.day),
-    telegram,
+    phone,
   };
 }
 
@@ -194,21 +184,34 @@ async function proofImage(user, id) {
   });
 }
 
-/* ---------- Telegram ---------- */
+/* ---------- Text reminders (phone) ---------- */
 
-async function createTelegramLink(user) {
-  if (!telegramConfigured()) throw new HttpError(503, "Reminders aren't set up on this server yet.");
-  const token = randomBytes(18).toString("base64url");
-  await pool.query(
-    `insert into telegram_link (user_id, link_token, token_expires_at) values ($1, $2, now() + interval '1 hour')
-     on conflict (user_id) do update set link_token = excluded.link_token, token_expires_at = excluded.token_expires_at`,
-    [user.id, token]);
-  return { url: `https://t.me/${process.env.TELEGRAM_BOT_USERNAME}?start=${token}` };
+async function addPhone(user, body) {
+  if (!linqConfigured()) throw new HttpError(503, "Text reminders aren't set up on this server yet.");
+  const phone = toE164(body?.phone);
+  if (!phone) bad("Enter a mobile number, like (555) 123-4567 or +44 7700 900123.");
+  let problem;
+  try {
+    problem = await startVerification(user.id, phone);
+  } catch (e) {
+    console.error(e);
+    throw new HttpError(502, "We couldn't text that number. Check it and try again.");
+  }
+  if (problem) bad(problem);
+  return phoneStatus(user.id);
 }
 
-async function unlinkTelegram(user) {
-  await pool.query("update telegram_link set chat_id = null, linked_at = null where user_id = $1", [user.id]);
-  return { ok: true };
+async function verifyPhone(user, body) {
+  const code = String(body?.code ?? "").replace(/\s/g, "");
+  if (!/^\d{6}$/.test(code)) bad("Enter the 6-digit code from the text.");
+  const problem = await confirmVerification(user.id, code);
+  if (problem) bad(problem);
+  return phoneStatus(user.id);
+}
+
+async function removePhone(user) {
+  await pool.query("delete from phone_link where user_id = $1", [user.id]);
+  return phoneStatus(user.id);
 }
 
 /* ---------- Router ---------- */
@@ -216,11 +219,7 @@ async function unlinkTelegram(user) {
 async function route(request, path) {
   const user = await requireUser(request);
   const m = request.method;
-  let body;
-  if (m === "POST") {
-    const text = await request.text();
-    try { body = text ? JSON.parse(text) : {}; } catch { bad("Invalid JSON."); }
-  }
+  const body = await readBody(request);
   let id;
 
   if (path === "state" && m === "GET") return json(await getState(user));
@@ -228,22 +227,11 @@ async function route(request, path) {
   if (path === "checkins" && m === "POST") return json(await addCheckin(user, body), 201);
   if ((id = path.match(/^checkins\/(\d+)$/)?.[1]) && m === "DELETE") return json(await deleteCheckin(user, id));
   if ((id = path.match(/^proof\/(\d+)$/)?.[1]) && m === "GET") return proofImage(user, id);
-  if (path === "telegram" && m === "GET") return json(await telegramStatus(user.id));
-  if (path === "telegram" && m === "DELETE") return json(await unlinkTelegram(user));
-  if (path === "telegram/link" && m === "POST") return json(await createTelegramLink(user));
+  if (path === "phone" && m === "GET") return json(await phoneStatus(user.id));
+  if (path === "phone" && m === "POST") return json(await addPhone(user, body));
+  if (path === "phone" && m === "DELETE") return json(await removePhone(user));
+  if (path === "phone/verify" && m === "POST") return json(await verifyPhone(user, body));
   throw new HttpError(404, "Not found.");
 }
 
-export default {
-  async fetch(request) {
-    const url = new URL(request.url);
-    const path = (url.searchParams.get("__path") ?? url.pathname.replace(/^\/api\/me\/?/, "")).replace(/^\/+|\/+$/g, "");
-    try {
-      return await route(request, path);
-    } catch (e) {
-      if (e instanceof HttpError) return json({ message: e.message }, e.status);
-      console.error(e);
-      return json({ message: "Something went wrong. Try again." }, 500);
-    }
-  },
-};
+export default handler("me", route);

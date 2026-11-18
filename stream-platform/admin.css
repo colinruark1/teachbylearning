@@ -1,0 +1,109 @@
+/* Admin dashboard (admin.html). Builds on styles.css and habits.css. */
+
+:root {
+  --warn: #b26a00;
+  --warn-bg: #fbefd9;
+  --bad: var(--live);
+  --bad-bg: #f8e1dc;
+}
+
+.admin { max-width: 1240px; margin: 0 auto; padding: calc(var(--nav-h) + 28px) 24px 64px; }
+.admin__head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.admin__refresh { display: flex; align-items: center; gap: 10px; }
+.admin__section { margin-top: 36px; }
+.admin__section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+.admin__section-head .today__h2 { margin: 0; }
+.admin__filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin__filters .field { height: 34px; padding-block: 0; }
+.admin__filters .btn { height: 34px; }
+#searchInput { width: 240px; max-width: 100%; }
+
+.admin-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+.admin-stats li {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 14px 16px;
+  background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px;
+}
+.admin-stats b { font-size: 28px; font-weight: 800; line-height: 1.1; }
+.admin-stats span { color: var(--text-muted); font-size: 13px; }
+
+/* Health */
+.health { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.health__item {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 14px;
+  background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px;
+}
+.health__item--missing { border-left: 4px solid var(--bad); }
+.health__item--warn { border-left: 4px solid var(--warn); }
+.health__item--ok { border-left: 4px solid var(--ok); }
+.health__dot { width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; flex-shrink: 0; background: var(--ok); }
+.health__item--missing .health__dot { background: var(--bad); }
+.health__item--warn .health__dot { background: var(--warn); }
+.health__text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.health__name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 700; }
+.health__status { padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--ok-bg); color: var(--ok); }
+.health__item--missing .health__status { background: var(--bad-bg); color: var(--bad); }
+.health__item--warn .health__status { background: var(--warn-bg); color: var(--warn); }
+.health__detail, .health__fix { font-size: 13px; overflow-wrap: anywhere; }
+.health__fix { color: var(--text-muted); }
+.health code { padding: 1px 4px; border-radius: 4px; background: var(--bg-hover); font-size: 12px; }
+
+/* Users table */
+.user-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt); }
+.user-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.user-table th {
+  padding: 10px 12px; text-align: left; white-space: nowrap;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.user-table td { padding: 12px; vertical-align: top; border-bottom: 1px solid var(--border); }
+.user-table tbody tr:last-child td { border-bottom: 0; }
+.user-table .empty { margin: 8px 0; }
+.user-cell { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; }
+.contact-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.contact { overflow-wrap: anywhere; }
+.contact--email { color: var(--link); font-weight: 600; }
+.contact--email:hover, .contact--phone a:hover { text-decoration: underline; }
+.contact--phone { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.contact--phone .link-btn { padding: 0; font-size: 12px; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.pill--new { background: var(--accent); color: #fff; }
+.mini-habits { display: flex; flex-direction: column; gap: 4px; }
+.mini-habit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.mini-habit .ico {
+  width: 20px; height: 20px; padding: 3px; flex-shrink: 0;
+  border-radius: 5px; background: hsl(var(--hue), var(--habit-sat), var(--habit-light)); color: #fff;
+}
+
+.compose-row td { background: var(--bg); }
+.compose { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
+.compose textarea { width: 100%; resize: vertical; }
+.compose__bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.compose__bar .muted { flex: 1; font-size: 12px; }
+
+@media (max-width: 1000px) {
+  .admin-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .health { grid-template-columns: 1fr; }
+}
+
+/* Phones: each user becomes a card. */
+@media (max-width: 720px) {
+  .admin { padding-inline: 16px; }
+  .admin-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .user-table-wrap { border: 0; background: none; overflow: visible; }
+  .user-table thead { display: none; }
+  .user-table, .user-table tbody, .user-table tr, .user-table td { display: block; width: 100%; }
+  .user-table tbody tr:not(.compose-row) {
+    margin-bottom: 10px; padding: 6px 0;
+    background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .user-table td { border: 0; padding: 6px 14px; }
+  .user-table td[data-label]::before {
+    content: attr(data-label);
+    display: block; margin-bottom: 2px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
+  }
+  .compose-row { margin: -6px 0 10px; }
+  #searchInput { width: 100%; }
+}

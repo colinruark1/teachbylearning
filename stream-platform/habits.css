@@ -2,8 +2,7 @@
    components in styles.css. Habit color comes from an inline --hue per element. */
 
 :root {
-  --tg: #2481cc;          /* Telegram blue */
-  --tg-hover: #1d6aa8;
+  --bubble-me: #1a8cff;   /* sent-message blue in the example text thread */
   --ok: #2e7d32;
   --ok-bg: #e7f1e3;
   --habit-sat: 55%;
@@ -17,9 +16,6 @@
 .eyebrow { color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
 .btn--lg { height: 44px; padding: 0 22px; font-size: 15px; border-radius: 6px; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
-.btn--tg { background: var(--tg); color: #fff; }
-.btn--tg:hover { background: var(--tg-hover); }
-.btn--tg[aria-disabled="true"] { opacity: .6; cursor: progress; }
 
 .habit-icon {
   width: 40px; height: 40px; flex-shrink: 0;
@@ -128,9 +124,14 @@
 
 /* Step 3: reminders */
 .ob__reminders { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; align-items: start; margin-top: 24px; }
-.tg { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
-.tg-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
-.tg-wait { font-size: 13px; }
+.phone-box { display: flex; flex-direction: column; align-items: stretch; gap: 10px; width: 100%; }
+.phone-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.phone-form .commit__field { flex: 1 1 200px; }
+.phone-form .btn { height: 38px; padding: 0 16px; }
+.phone-input { font-size: 16px; letter-spacing: .02em; }
+.phone-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.phone-actions .link-btn { padding: 0; }
+.phone-fine { font-size: 12px; }
 .notice {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 14px;
@@ -138,6 +139,7 @@
   background: var(--bg-alt);
   border: 1px solid var(--border);
 }
+.notice svg { flex-shrink: 0; }
 .notice--ok { background: var(--ok-bg); border-color: transparent; color: var(--ok); }
 .notice--ok span { color: var(--text); }
 
@@ -157,11 +159,11 @@
   font-size: 13px;
 }
 .ping__quote { display: block; margin-top: 6px; color: var(--text-muted); font-style: italic; }
-.ping__buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-.ping__buttons span {
-  padding: 6px; border-radius: 8px; text-align: center;
-  background: color-mix(in srgb, var(--tg) 12%, var(--bg));
-  color: var(--tg-hover); font-size: 12px; font-weight: 600;
+.ping__reply { display: block; margin-top: 6px; }
+.ping__bubble--me {
+  align-self: flex-end; max-width: 75%;
+  background: var(--bubble-me); color: #fff;
+  border-radius: 12px 12px 4px 12px;
 }
 
 /* ---------- Today ---------- */
@@ -265,7 +267,6 @@
 
 .commit-list { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 .commit-list li { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; }
-.tg-status { display: flex; align-items: center; gap: 6px; color: var(--ok); font-weight: 700; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 920px) {

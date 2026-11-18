@@ -1,15 +1,13 @@
 // Today page: one card per commitment with a check-in form (proof, what you did,
-// thoughts), the log of past check-ins, streak, and the Telegram reminder status.
+// thoughts), the log of past check-ins, streak, and the text-reminder settings.
 // Data comes from /api/me (api/me.js). ?habit=<id> opens that habit's form, which is
 // where the reminder bot's "Log it" links land.
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
-let data = { commitments: [], checkins: [], activeDays: [], telegram: { configured: false, linked: false } };
+let data = { commitments: [], checkins: [], activeDays: [], phone: { configured: false, verified: false } };
 let openHabit = null;          // habit id whose check-in form is open
 const drafts = {};             // habit id → check-in draft, kept while the form is open
-let telegramUrl = "";
-let pollTimer;
 
 const today = () => localDate();
 const dow = () => new Date().getDay();
@@ -224,47 +222,11 @@ function renderCommitList() {
   }).join("");
 }
 
-function renderTelegram() {
-  const t = data.telegram, el = $("#tgPanel");
-  clearInterval(pollTimer);
-  if (!t.configured) {
-    el.innerHTML = `<p class="muted">Reminders aren't switched on for this server yet.</p>`;
-    return;
-  }
-  if (t.linked) {
-    el.innerHTML = `<p class="tg-status">${check} Telegram connected</p>
-      <p class="muted">You'll get a nudge before each session and a check-in afterward. Send <b>/status</b> to the bot any time.</p>
-      <button type="button" class="link-btn" data-action="tg-off">Turn off reminders</button>`;
-    return;
-  }
-  el.innerHTML = `<p class="muted">Get a nudge before each session and a check-in afterward, free through Telegram.</p>
-    <a class="btn btn--tg" id="tgConnect" href="${esc(telegramUrl) || "#"}" target="_blank" rel="noopener">Connect Telegram</a>`;
-  if (!telegramUrl) {
-    meApi("telegram/link", { method: "POST" })
-      .then(({ url }) => { telegramUrl = url; renderTelegram(); })
-      .catch((e) => toast(e.message));
-  }
-}
-
-// After the user opens the bot, poll until they've pressed Start.
-function pollTelegram() {
-  clearInterval(pollTimer);
-  let tries = 0;
-  pollTimer = setInterval(async () => {
-    if (++tries > 100) return clearInterval(pollTimer);
-    try {
-      const s = await meApi("telegram");
-      if (s.linked) { data.telegram = s; renderTelegram(); toast("Telegram connected!"); }
-    } catch { /* keep polling */ }
-  }, 3000);
-}
-
 function renderAll() {
   renderHead();
   renderCards();
   renderLog();
   renderCommitList();
-  renderTelegram();
 }
 
 /* ---------- Events ---------- */
@@ -308,10 +270,6 @@ document.addEventListener("click", async (e) => {
     return;
   }
   const a = e.target.closest("[data-action]");
-  if (e.target.closest("#tgConnect")) {
-    if (!telegramUrl) e.preventDefault(); else pollTelegram();
-    return;
-  }
   if (!a) return;
   const form = a.closest(".checkin");
   switch (a.dataset.action) {
@@ -325,16 +283,6 @@ document.addEventListener("click", async (e) => {
         await meApi(`checkins/${a.dataset.id}`, { method: "DELETE" });
         data = await meApi("state"); // reload so the streak and day counts are recomputed
         renderAll();
-      } catch (ex) { toast(ex.message); }
-      break;
-    }
-    case "tg-off": {
-      try {
-        await meApi("telegram", { method: "DELETE" });
-        data.telegram.linked = false;
-        telegramUrl = "";
-        renderTelegram();
-        toast("Reminders are off.");
       } catch (ex) { toast(ex.message); }
       break;
     }
@@ -417,6 +365,10 @@ document.addEventListener("submit", async (e) => {
     return;
   }
   renderAll();
+  bindPhoneForm($("#phonePanel"), () => data.phone, (s) => {
+    if (s.verified && !data.phone.verified) toast("You're connected! Check your texts.");
+    data.phone = s;
+  });
   const params = new URLSearchParams(location.search);
   if (params.has("welcome")) toast("You're all set. Log each session here once it's done.");
   const habit = params.get("habit");

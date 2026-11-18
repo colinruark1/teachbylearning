@@ -33,11 +33,32 @@ create table if not exists habit_checkin (
 );
 create index if not exists habit_checkin_user_day on habit_checkin (user_id, day desc);
 
--- Telegram chat used for reminders (free stand-in for SMS).
-create table if not exists telegram_link (
-  user_id          text primary key references "user"(id) on delete cascade,
-  chat_id          bigint unique,                  -- null until the user taps Start in Telegram
-  link_token       text unique,
-  token_expires_at timestamptz,
-  linked_at        timestamptz
+-- Phone number that reminders are texted to (via Linq). Reminders go out only while
+-- verified_at is set; PAUSE/STOP clear it.
+create table if not exists phone_link (
+  user_id       text primary key references "user"(id) on delete cascade,
+  phone         text not null,                     -- E.164, e.g. +15551234567
+  verified_at   timestamptz,
+  code_hash     text,                              -- sha256 of the pending 6-digit code
+  code_sent_at  timestamptz,
+  code_attempts smallint not null default 0
+);
+-- One account per verified number (inbound texts are matched by number).
+create unique index if not exists phone_link_verified_phone on phone_link (phone) where verified_at is not null;
+
+-- Linq delivers webhooks at least once; remember event ids so a retry isn't handled twice.
+create table if not exists webhook_event (
+  id          text primary key,
+  received_at timestamptz not null default now()
+);
+
+-- Replaced by phone_link (reminders moved from Telegram to Linq).
+drop table if exists telegram_link;
+
+-- Last time each background piece ran (see lib/heartbeat.js), shown on the admin dashboard:
+-- reminders_tick, linq_webhook, linq_send, linq_send_error.
+create table if not exists app_heartbeat (
+  key    text primary key,
+  at     timestamptz not null,
+  detail jsonb not null default '{}'
 );

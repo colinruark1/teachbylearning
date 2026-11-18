@@ -203,3 +203,93 @@ function downscale(file, max = 1280) {
     im.src = url;
   });
 }
+
+/* ---------- Text reminders: phone + code form ---------- */
+
+// "+15551234567" → "(555) 123-4567"; other countries are shown as stored.
+const fmtPhone = (p) => (/^\+1\d{10}$/.test(p || "") ? `(${p.slice(2, 5)}) ${p.slice(5, 8)}-${p.slice(8)}` : p || "");
+
+const okIcon = `<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+// Markup for the reminders box, from GET /api/me/phone's { configured, phone, verified, pending }.
+// `changing`: the user asked to enter a different number.
+function phoneFormHTML(s, changing = false) {
+  if (!s.configured) {
+    return `<div class="notice">Text reminders aren't switched on for this server yet. Your commitments are saved.</div>`;
+  }
+  if (s.verified && !changing) {
+    return `<div class="notice notice--ok">${okIcon}<span><b>Texts go to ${esc(fmtPhone(s.phone))}.</b>
+        Reply STATUS any time to see what's left today.</span></div>
+      <div class="phone-actions">
+        <button type="button" class="link-btn" data-phone="change">Use a different number</button>
+        <button type="button" class="link-btn" data-phone="off">Turn off texts</button>
+      </div>`;
+  }
+  if (s.pending && !changing) {
+    return `<form class="phone-form" data-phone-form="verify" novalidate>
+        <label class="commit__field">
+          <span class="ob-label">We texted a code to ${esc(fmtPhone(s.phone))}</span>
+          <input class="field phone-input" name="code" inputmode="numeric" autocomplete="one-time-code"
+            maxlength="6" placeholder="6-digit code" required />
+        </label>
+        <button type="submit" class="btn btn--primary">Confirm</button>
+      </form>
+      <div class="phone-actions">
+        <button type="button" class="link-btn" data-phone="resend">Text me a new code</button>
+        <button type="button" class="link-btn" data-phone="change">Change number</button>
+      </div>
+      <p class="ob__err" data-phone-err role="alert"></p>`;
+  }
+  return `<form class="phone-form" data-phone-form="send" novalidate>
+      <label class="commit__field">
+        <span class="ob-label">Mobile number</span>
+        <input class="field phone-input" name="phone" type="tel" autocomplete="tel" inputmode="tel"
+          placeholder="(555) 123-4567" value="${esc(changing ? "" : fmtPhone(s.phone))}" required />
+      </label>
+      <button type="submit" class="btn btn--primary">Text me a code</button>
+    </form>
+    <p class="muted phone-fine">Works with iMessage or regular texts. Message and data rates may apply. Reply STOP to opt out.</p>
+    <p class="ob__err" data-phone-err role="alert"></p>`;
+}
+
+// Wires the box rendered by phoneFormHTML inside `root`. Calls onChange(status) after
+// each successful request; the caller re-renders from it.
+function bindPhoneForm(root, getStatus, onChange) {
+  let changing = false;
+  const render = () => { root.innerHTML = phoneFormHTML(getStatus(), changing); };
+  const run = async (btn, fn) => {
+    const err = root.querySelector("[data-phone-err]");
+    if (err) err.textContent = "";
+    if (btn) btn.disabled = true;
+    try {
+      const s = await fn();
+      changing = false;
+      onChange(s);
+      render();
+      root.querySelector('[name="code"]')?.focus();
+    } catch (e) {
+      if (err) err.textContent = e.message;
+      if (btn) btn.disabled = false;
+    }
+  };
+  root.addEventListener("submit", (e) => {
+    const form = e.target.closest("[data-phone-form]");
+    if (!form) return;
+    e.preventDefault();
+    const btn = form.querySelector("[type=submit]");
+    if (form.dataset.phoneForm === "send") {
+      run(btn, () => meApi("phone", { method: "POST", body: { phone: form.phone.value } }));
+    } else {
+      run(btn, () => meApi("phone/verify", { method: "POST", body: { code: form.code.value } }));
+    }
+  });
+  root.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-phone]");
+    if (!b) return;
+    const a = b.dataset.phone;
+    if (a === "change") { changing = true; render(); root.querySelector('[name="phone"]')?.focus(); }
+    if (a === "resend") run(b, () => meApi("phone", { method: "POST", body: { phone: getStatus().phone } }));
+    if (a === "off") run(b, () => meApi("phone", { method: "DELETE" }));
+  });
+  render();
+}

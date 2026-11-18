@@ -93,6 +93,11 @@ h2, h3, p { margin: 0; }
 .topnav__user { font-weight: 600; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 600px) { .topnav__user { display: none; } }
 
+/* Admin-only "View as Admin / User" switch (added by auth-guard.js) */
+.view-switch { display: inline-flex; padding: 2px; gap: 2px; background: var(--bg-hover); border-radius: 6px; }
+.view-switch button { padding: 3px 9px; border-radius: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.view-switch button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
 .logo { color: var(--accent); padding: 0 6px; transition: transform .15s; }
 .logo:hover { transform: translate(-2px, -2px); }
 

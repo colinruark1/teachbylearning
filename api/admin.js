@@ -2,19 +2,22 @@
 // vercel.json rewrites /api/admin/<path> to /api/admin?__path=<path>.
 //
 //   GET  /api/admin/overview   signed-up users + contact details, and integration health
-//   POST /api/admin/text       { userId, message } → texts a user's verified number via Linq
+//   POST /api/admin/text       { userId, message } → messages a user's verified phone (lib/messaging)
+//   POST /api/admin/email      { userId, subject, message } → emails a user (lib/messaging)
 import { HttpError, bad, json, str, requireUser, readBody, handler } from "../lib/http.js";
 import { pool, baseURL } from "../lib/db.js";
-import { linq, linqConfigured } from "../lib/linq.js";
-import { text } from "../lib/sms.js";
+import { phone, email, CannotDeliver } from "../lib/messaging/index.js";
+import { deliver, windowOpen } from "../lib/bot.js";
 import { heartbeats } from "../lib/heartbeat.js";
+import { storage } from "../lib/storage/index.js";
+import * as strava from "../lib/strava.js";
 
 /* ---------- Users ---------- */
 
 async function users() {
   const { rows } = await pool.query(`
     select u.id, u.name, u.email, u."emailVerified", u."twoFactorEnabled", u."createdAt", u."onboardedAt",
-           p.phone, p.verified_at as "phoneVerifiedAt",
+           p.phone, p.verified_at as "phoneVerifiedAt", p.last_inbound_at as "lastInboundAt",
            coalesce((select array_agg(c.habit order by c.time_local) from habit_commitment c
                      where c.user_id = u.id and c.active), '{}') as habits,
            (select count(*)::int from habit_checkin k where k.user_id = u.id) as checkins,
@@ -40,12 +43,17 @@ const when = (t) => {
 };
 
 async function schemaCheck() {
-  const tables = ["habit_commitment", "habit_checkin", "phone_link", "webhook_event", "app_heartbeat"];
+  const tables = ["habit_commitment", "habit_checkin", "phone_link", "webhook_event", "app_heartbeat", "strava_link"];
   const { rows } = await pool.query(
     `select t, to_regclass(t) is not null as present from unnest($1::text[]) as t`, [tables]);
-  const { rowCount: hasCol } = await pool.query(
-    `select 1 from information_schema.columns where table_name = 'user' and column_name = 'onboardedAt'`);
-  const missing = [...rows.filter((r) => !r.present).map((r) => r.t), ...(hasCol ? [] : ['"user".onboardedAt'])];
+  const cols = [["user", "onboardedAt"], ["habit_checkin", "proof_storage"], ["phone_link", "last_inbound_at"]];
+  const { rows: found } = await pool.query(
+    `select table_name || '.' || column_name as c from information_schema.columns
+     where (table_name, column_name) in (select * from unnest($1::text[], $2::text[]))`,
+    [cols.map((c) => c[0]), cols.map((c) => c[1])]);
+  const have = new Set(found.map((r) => r.c));
+  const missing = [...rows.filter((r) => !r.present).map((r) => r.t),
+    ...cols.map(([t, c]) => `${t}.${c}`).filter((c) => !have.has(c))];
   return {
     id: "schema", name: "Database tables",
     status: missing.length ? "missing" : "ok",
@@ -69,77 +77,33 @@ function authCheck() {
   };
 }
 
-async function linqChecks(hb) {
-  const out = [];
-  const key = process.env.LINQ_API_KEY;
-  const dry = Boolean(process.env.LINQ_DRY_RUN);
-
-  // API key: try a real authenticated call, which also tells us whether the webhook is registered.
-  let subs = null;
-  if (!key) {
-    out.push({
-      id: "linq_api", name: "Linq texting API",
-      status: dry ? "warn" : "missing",
-      detail: dry ? "Dry-run mode: texts are printed to the server log, not sent." : "LINQ_API_KEY is not set, so no texts can be sent.",
-      fix: "Generate a token at dashboard.linqapp.com → API → Overview, and set LINQ_API_KEY.",
-    });
-  } else {
-    try {
-      const data = await linq("/webhook-subscriptions", undefined, "GET");
-      subs = Array.isArray(data) ? data : data?.webhook_subscriptions ?? data?.data ?? data?.subscriptions ?? null;
-      out.push({
-        id: "linq_api", name: "Linq texting API",
-        status: dry ? "warn" : "ok",
-        detail: dry ? "Token works, but LINQ_DRY_RUN is set, so texts are only logged." : "Token accepted by Linq.",
-        fix: dry ? "Remove LINQ_DRY_RUN in production." : undefined,
-      });
-    } catch (e) {
-      out.push({
-        id: "linq_api", name: "Linq texting API",
-        status: e.status === 401 || e.status === 403 ? "missing" : "warn",
-        detail: e.status === 401 || e.status === 403 ? "Linq rejected LINQ_API_KEY." : `Couldn't reach Linq: ${e.message}`,
-        fix: e.status === 401 || e.status === 403 ? "Generate a new token in the Linq dashboard and update LINQ_API_KEY." : undefined,
-      });
-    }
-  }
-
-  // Outgoing texts actually going through.
-  const sent = hb.linq_send?.at, failed = hb.linq_send_error?.at;
+// Whether messages are actually going out, whatever the provider.
+function deliveryCheck(kind, name, hb) {
+  const sent = hb[`${kind}_send`]?.at, failed = hb[`${kind}_send_error`]?.at;
+  const undeliverable = kind === "phone" ? hb.reminders_tick?.detail?.undeliverable ?? 0 : 0;
+  const provider = kind === "phone" ? phone : email;
   if (failed && ago(failed) < ago(sent)) {
-    out.push({
-      id: "linq_send", name: "Text delivery", status: "warn",
-      detail: `Last send failed ${when(failed)}: ${hb.linq_send_error.detail?.message ?? "unknown error"}`,
-      fix: "Check the Linq dashboard for the line's health, and the error above.",
-    });
-  } else {
-    out.push({
-      id: "linq_send", name: "Text delivery", status: sent ? "ok" : linqConfigured() ? "warn" : "missing",
-      detail: sent ? `Last text sent ${when(sent)}.` : "No text has been sent yet.",
-    });
+    return { id: `${kind}_send`, name, status: "warn",
+      detail: `Last send failed ${when(failed)}: ${hb[`${kind}_send_error`].detail?.message ?? "unknown error"}`,
+      fix: `Check the error above and the ${provider.id} dashboard.` };
   }
+  if (undeliverable) {
+    return { id: `${kind}_send`, name, status: "warn",
+      detail: `${undeliverable} reminder(s) in the last run couldn't be sent because of ${phone.label} rules (e.g. a closed reply window).`,
+      fix: "See the provider checks above (for WhatsApp, set BIRD_TEMPLATE_SLUG)." };
+  }
+  return { id: `${kind}_send`, name, status: sent ? "ok" : provider.configured() ? "warn" : "missing",
+    detail: sent ? `Last message sent ${when(sent)} via ${provider.id}.` : `Nothing has been sent via ${provider.id} yet.` };
+}
 
-  // Inbound webhook: secret set, registered with Linq, and receiving.
-  const target = baseURL ? `${baseURL}/api/linq` : null;
-  const registered = subs && target
-    ? subs.some((s) => String(s.target_url || s.webhook_url || "").startsWith(target) && s.is_active !== false)
-    : null;
-  const got = hb.linq_webhook?.at, badSig = hb.linq_webhook_bad_signature?.at;
-  let status = "ok", detail, fix;
-  if (!process.env.LINQ_WEBHOOK_SECRET) {
-    status = "missing"; detail = "LINQ_WEBHOOK_SECRET is not set, so replies (SKIP, STATUS, …) are rejected.";
-    fix = "Run `npm run linq:webhook` with BETTER_AUTH_URL set to this site, then set the printed secret.";
-  } else if (badSig && ago(badSig) < ago(got)) {
-    status = "warn"; detail = `Linq is calling the webhook but the signature check fails (last ${when(badSig)}).`;
-    fix = "LINQ_WEBHOOK_SECRET doesn't match the subscription. Re-run `npm run linq:webhook` and update it.";
-  } else if (registered === false) {
-    status = "missing"; detail = `No active Linq subscription points at ${target}.`;
-    fix = "Run `npm run linq:webhook` with BETTER_AUTH_URL set to this site.";
-  } else {
-    detail = got ? `Last reply received ${when(got)}.` : "Configured; no replies received yet.";
-    if (registered === null && key) detail += " (Couldn't confirm the subscription with Linq.)";
-  }
-  out.push({ id: "linq_webhook", name: "Text replies (Linq webhook)", status, detail, fix });
-  return out;
+async function messagingChecks(hb) {
+  const [phoneChecks, emailChecks] = await Promise.all([phone.health(hb), email.health(hb)]);
+  return [
+    ...phoneChecks,
+    ...(phone.configured() ? [deliveryCheck("phone", `${phone.label} delivery`, hb)] : []),
+    ...emailChecks,
+    ...(email.configured() ? [deliveryCheck("email", "Email delivery", hb)] : []),
+  ];
 }
 
 function cronCheck(hb) {
@@ -157,22 +121,44 @@ function cronCheck(hb) {
   };
 }
 
+// Strava OAuth (lib/strava.js): app credentials, connected athletes, and the deauth webhook.
+async function stravaCheck(hb, schemaOk) {
+  const fix = "Create an app at strava.com/settings/api and set STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET (see .env.example).";
+  if (!strava.configured()) {
+    return { id: "strava", name: "Strava", status: "missing", detail: "STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET are not set, so Connect with Strava is off.", fix };
+  }
+  const n = schemaOk ? (await pool.query("select count(*)::int as n from strava_link")).rows[0].n : 0;
+  const hook = process.env.STRAVA_SUBSCRIPTION_ID;
+  return {
+    id: "strava", name: "Strava", status: hook ? "ok" : "warn",
+    detail: `${n} athlete(s) connected. Redirect URI ${strava.redirectURI()}. `
+      + (hook ? `Webhook subscription ${hook}, last event ${when(hb.strava_webhook?.at)}.` : "No webhook subscription, so revoked access is only noticed on next use.")
+      + " New Strava apps allow 1 athlete until Strava reviews them.",
+    fix: hook ? undefined : "Run `npm run strava:webhook` with BETTER_AUTH_URL set to the deployed origin, then set STRAVA_SUBSCRIPTION_ID.",
+  };
+}
+
 // Parts of the site that are still stand-ins. Update this list as they get real backends.
 const KNOWN_GAPS = [
-  { id: "email", name: "Email sending", status: "missing",
-    detail: "No email provider is connected: no welcome emails, email verification or password reset. Email users from your own inbox for now.",
-    fix: "Add a provider (e.g. Resend) and Better Auth's emailVerification / sendResetPassword." },
-  { id: "strava", name: "Strava", status: "missing",
-    detail: "Connecting Strava on the Learn pages is simulated (STRAVA_ACTIVITIES in learn.js).",
-    fix: "Needs Strava OAuth plus a server endpoint to store tokens and fetch activities." },
-  { id: "streams", name: "Browse page streams", status: "missing",
-    detail: "Streams, channels and categories are mock data (STREAMS, CATEGORIES in app.js)." },
-  { id: "learn", name: "Learn community posts", status: "missing",
-    detail: "Progress posts, discussions, likes and comments live in each visitor's browser (localStorage), so nobody else sees them." },
-  { id: "photos", name: "Proof photo storage", status: "warn",
-    detail: "Check-in photos are stored inside Postgres. Fine for now; will bloat the database as usage grows.",
-    fix: "Move to object storage (e.g. Vercel Blob) when it matters." },
+  { id: "streams", name: "Community live streams", status: "missing",
+    detail: "Live streams are mock data (LIVE_STREAMS in communities.js) and there is no stream player yet. The unlinked Browse page (browse.html) uses STREAMS, CATEGORIES in app.js." },
+  { id: "learn", name: "Community posts & requests", status: "missing",
+    detail: "Progress posts, discussions, likes, comments and community requests live in each visitor's browser (localStorage), so nobody else sees them." },
 ];
+
+// Active provider's own checks, plus photos still held by an older provider.
+async function storageChecks() {
+  const checks = await storage.health();
+  const { rows: [{ n }] } = await pool.query(
+    `select count(*)::int as n from habit_checkin
+     where proof_type = 'photo' and coalesce(proof_storage, 'postgres') <> $1`, [storage.id]);
+  if (n && storage.id !== "postgres") {
+    checks.push({ id: "storage_migrate", name: "Photos to migrate", status: "warn",
+      detail: `${n} older photo(s) are still stored outside ${storage.label}. They still display fine.`,
+      fix: "Run `npm run storage:migrate` to move them." });
+  }
+  return checks;
+}
 
 async function health() {
   let db;
@@ -184,7 +170,7 @@ async function health() {
   }
   const schema = await schemaCheck();
   const hb = schema.status === "ok" ? await heartbeats() : {};
-  return [db, schema, authCheck(), ...(await linqChecks(hb)), cronCheck(hb), ...KNOWN_GAPS];
+  return [db, schema, authCheck(), ...(await messagingChecks(hb)), ...(await storageChecks()), cronCheck(hb), await stravaCheck(hb, schema.status === "ok"), ...KNOWN_GAPS];
 }
 
 /* ---------- Actions ---------- */
@@ -193,17 +179,35 @@ async function sendText(admin, body) {
   const message = str(body?.message, 1000);
   if (!message) bad("Write a message first.");
   const { rows } = await pool.query(
-    "select phone from phone_link where user_id = $1 and verified_at is not null", [String(body?.userId ?? "")]);
-  if (!rows[0]) bad("That user hasn't verified a phone number, or turned texts off.");
-  let ok;
+    "select phone, last_inbound_at from phone_link where user_id = $1 and verified_at is not null",
+    [String(body?.userId ?? "")]);
+  if (!rows[0]) bad("That user hasn't connected a phone number, or turned reminders off.");
+  let via;
   try {
-    ok = await text(rows[0].phone, message);
+    via = await deliver(rows[0], message);
+  } catch (e) {
+    if (e instanceof CannotDeliver) bad(`${phone.label} won't deliver this right now: ${e.message}`);
+    console.error(e);
+    throw new HttpError(502, `${phone.id} couldn't send it: ${e.message}`);
+  }
+  console.log(`admin ${admin.email} messaged user ${body.userId} (${via})`);
+  return { ok: true, via, windowOpen: windowOpen(rows[0].last_inbound_at) };
+}
+
+async function sendEmail(admin, body) {
+  if (!email.configured()) bad("No email provider is set up yet (EMAIL_PROVIDER).");
+  const subject = str(body?.subject, 200);
+  const message = str(body?.message, 10000);
+  if (!subject || !message) bad("Add a subject and a message.");
+  const { rows } = await pool.query(`select email from "user" where id = $1`, [String(body?.userId ?? "")]);
+  if (!rows[0]) bad("User not found.");
+  try {
+    await email.send({ to: rows[0].email, subject, text: message });
   } catch (e) {
     console.error(e);
-    throw new HttpError(502, `Linq couldn't send it: ${e.message}`);
+    throw new HttpError(502, `${email.id} couldn't send it: ${e.message}`);
   }
-  if (!ok) bad("That user has opted out of texts (replied STOP).");
-  console.log(`admin ${admin.email} texted user ${body.userId}`);
+  console.log(`admin ${admin.email} emailed user ${body.userId}`);
   return { ok: true };
 }
 
@@ -217,9 +221,17 @@ async function route(request, path) {
 
   if (path === "overview" && m === "GET") {
     const [list, checks] = await Promise.all([users(), health()]);
-    return json({ users: list, health: checks, generatedAt: new Date().toISOString() });
+    for (const u of list) if (u.phone) u.phoneLink = phone.contactLink(u.phone);
+    return json({
+      users: list, health: checks, generatedAt: new Date().toISOString(),
+      messaging: {
+        phone: { id: phone.id, label: phone.label, configured: phone.configured(), replyWindowHours: phone.capabilities.replyWindowHours },
+        email: { id: email.id, label: email.label, configured: email.configured() },
+      },
+    });
   }
   if (path === "text" && m === "POST") return json(await sendText(user, body));
+  if (path === "email" && m === "POST") return json(await sendEmail(user, body));
   throw new HttpError(404, "Not found.");
 }
 

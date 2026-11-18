@@ -1,7 +1,10 @@
-// "Learn a New Skill" — per-skill progress feeds and discussion forums with likes & comments.
-// Mock data persisted to localStorage. Replace `load`/`persist` with a real API, and
-// `STRAVA_ACTIVITIES` + the "Connect with Strava" handler with Strava OAuth
-// (https://developers.strava.com — needs a server to exchange the auth code for tokens).
+// Communities — one per skill (SKILLS in skills.js). Each has members streaming themselves
+// learning (LIVE_STREAMS), a progress feed sorted by popularity, and a discussion forum.
+// The hub lets members request new communities and upvote requests (REQUESTS); a request
+// that reaches REQUEST_GOAL is ready to open as a new SKILLS entry.
+// Mock data persisted to localStorage. Replace `load`/`persist` with a real API and
+// `LIVE_STREAMS` with the streaming backend. Strava is real: /api/strava (api/strava.js)
+// handles OAuth and lists the signed-in user's own activities.
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const main = $("#learnMain");
@@ -46,15 +49,66 @@ const ICONS = {
   trash: ico('<path d="M4 6h12M8 6V4h4v2M5.5 6l1 11h7l1-11"/>'),
   grid: ico('<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>'),
   text: ico('<path d="M4 5h12M4 9h12M4 13h8"/>'),
+  up: ico('<path d="M5 12l5-5 5 5"/>'),
+  live: ico('<circle cx="10" cy="10" r="2"/><path d="M6.5 6.5a5 5 0 0 0 0 7M13.5 6.5a5 5 0 0 1 0 7M4 4a8.5 8.5 0 0 0 0 12M16 4a8.5 8.5 0 0 1 0 12"/>'),
 };
 
-// ---------- Mock Strava activities (what /athlete/activities would return) ----------
-const STRAVA_ACTIVITIES = [
-  { id: "sa1", type: "Run", name: "Morning tempo run", distanceKm: 8.4, movingSec: 2490, elevM: 62, seed: 3, t: ago(5) },
-  { id: "sa2", type: "Ride", name: "Lunch loop", distanceKm: 27.9, movingSec: 3720, elevM: 310, seed: 7, t: ago(29) },
-  { id: "sa3", type: "Run", name: "Easy recovery jog", distanceKm: 5.1, movingSec: 1980, elevM: 18, seed: 11, t: ago(52) },
-  { id: "sa4", type: "Workout", name: "Push day — bench & overhead press", distanceKm: 0, movingSec: 3300, elevM: 0, seed: 0, t: ago(76) },
+// ---------- Mock live streams: members streaming themselves learning ----------
+// startedH: hours since the stream went live.
+const LIVE_STREAMS = [
+  { skill: "writing", sub: "Creative Writing", user: "QuietQuill", hue: 180, viewers: 412, startedH: 1.4, title: "Writing sprint: 2,000 words of my fantasy novel — come write along" },
+  { skill: "writing", sub: "Professional Writing", user: "Devon Okafor", hue: 200, viewers: 96, startedH: 0.5, title: "Rewriting my résumé bullets live — roast them" },
+  { skill: "art", sub: "Digital Art", user: "Ines Calder", hue: 280, viewers: 1830, startedH: 2.2, title: "Painting a forest spirit from thumbnail to final" },
+  { skill: "art", sub: "Sketching", user: "Theo Marsh", hue: 160, viewers: 640, startedH: 0.8, title: "Day 61 of hand studies — 30-second gestures" },
+  { skill: "art", sub: "Painting", user: "Ben Whitaker", hue: 140, viewers: 88, startedH: 0.3, title: "First time with cotton watercolor paper" },
+  { skill: "cooking", sub: "Baking", user: "Sam Rivera", hue: 15, viewers: 2210, startedH: 3.1, title: "Sourdough #7 — shaping and scoring, Q&A while it proofs" },
+  { skill: "cooking", sub: "Preparing Meals", user: "ChillChef", hue: 30, viewers: 1340, startedH: 1.1, title: "Fresh pasta from scratch, no pasta machine 🍝" },
+  { skill: "speaking", sub: "Presenting", user: "Alexis Grant", hue: 220, viewers: 154, startedH: 0.6, title: "Practicing my conference talk — timed run, feedback welcome" },
+  { skill: "instrument", sub: "Guitar", user: "Leo Brandt", hue: 45, viewers: 920, startedH: 1.7, title: "Learning 'Blackbird' fingerstyle at 60 bpm" },
+  { skill: "instrument", sub: "Piano", user: "Hana Sato", hue: 300, viewers: 505, startedH: 0.9, title: "Clair de Lune page 2 — slow practice, wrong notes included" },
+  { skill: "language", sub: "Spanish", user: "Lucía Ortega", hue: 10, viewers: 1120, startedH: 0.4, title: "Language exchange 🇪🇸🇬🇧 — hop in chat and practice" },
+  { skill: "language", sub: "Japanese", user: "Marco Bellini", hue: 120, viewers: 310, startedH: 2.5, title: "Reading my first graded reader out loud (N4)" },
+  { skill: "reading", sub: "Reading More Often", user: "Priya Nair", hue: 350, viewers: 260, startedH: 1.0, title: "Silent reading co-work — 50 min on, 10 off" },
+  { skill: "fitness", sub: "Weightlifting", user: "Marcus Hale", hue: 260, viewers: 1675, startedH: 0.7, title: "Deadlift day — working up to a 145 kg triple" },
+  { skill: "fitness", sub: "Running", user: "Nadia Kerr", hue: 5, viewers: 730, startedH: 0.2, title: "Treadmill 10K, chat picks my playlist" },
+  { skill: "photography", sub: "Editing Photos", user: "Ravi Menon", hue: 185, viewers: 480, startedH: 1.3, title: "Editing last night's street photos — viewer RAW files welcome" },
+  { skill: "dancing", sub: "Learning Routines", user: "Jordan Lee", hue: 340, viewers: 990, startedH: 0.5, title: "Learning a new routine from zero in one stream 💃" },
 ];
+const liveIn = (skillId, sub) =>
+  LIVE_STREAMS.filter((s) => s.skill === skillId && (!sub || s.sub === sub)).sort((a, b) => b.viewers - a.viewers);
+
+// ---------- Community requests (the list of communities keeps growing from these) ----------
+const REQUEST_GOAL = 250;
+const seedRequests = () => [
+  { id: uid(), name: "Coding", votes: 231, voted: false },
+  { id: uid(), name: "Chess", votes: 188, voted: false },
+  { id: uid(), name: "Gardening", votes: 142, voted: false },
+  { id: uid(), name: "Woodworking", votes: 97, voted: false },
+  { id: uid(), name: "Knitting", votes: 64, voted: false },
+];
+
+// "Popular": engagement that fades with age, so a great post from today beats an old one.
+const score = (p) => (p.likes + 2 * p.comments.length) / Math.pow((Date.now() - p.t) / HOUR + 2, 0.6);
+const byPopular = (a, b) => score(b) - score(a);
+
+// ---------- Strava (via /api/strava, see api/strava.js) ----------
+// null = not fetched yet; otherwise { configured, connected, athlete, activities, error? }.
+let strava = null;
+let stravaLoading = false;
+
+async function loadStrava() {
+  stravaLoading = true;
+  refreshStrava();
+  try {
+    const res = await fetch("/api/strava/activities", { credentials: "same-origin" });
+    const data = await res.json().catch(() => ({}));
+    strava = res.ok ? data : { ...(strava || {}), activities: strava?.activities || [], error: data.message || "Couldn't reach Strava." };
+  } catch {
+    strava = { ...(strava || {}), activities: [], error: "Couldn't reach Strava. Check your connection." };
+  }
+  stravaLoading = false;
+  refreshStrava();
+}
 
 // ---------- Seed posts ----------
 const U = {
@@ -197,9 +251,13 @@ const STORE_KEY = "tbl.learn.v1";
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      saved.requests ??= seedRequests(); // saved before requests existed
+      return saved;
+    }
   } catch {}
-  return { posts: seedPosts(), joined: [], strava: false };
+  return { posts: seedPosts(), joined: [], requests: seedRequests() };
 }
 
 const state = load();
@@ -219,7 +277,8 @@ function persist() {
 }
 
 // ---------- UI state ----------
-let view = { skill: null, tab: "progress", sub: null };
+let view = { skill: null, tab: "progress", sub: null, sort: "top" };
+let query = ""; // hub search
 let draft = { media: [], strava: null };
 let stravaOpen = false;
 const openComments = new Set();
@@ -257,7 +316,7 @@ function mediaHTML(media) {
 }
 
 const pace = (a) => {
-  if (a.type === "Ride") return ["Speed", `${(a.distanceKm / (a.movingSec / 3600)).toFixed(1)} km/h`];
+  if (/Ride$/.test(a.type)) return ["Speed", `${(a.distanceKm / (a.movingSec / 3600)).toFixed(1)} km/h`];
   const s = Math.round(a.movingSec / a.distanceKm);
   return ["Pace", `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} /km`];
 };
@@ -276,6 +335,14 @@ function routeSVG(seed) {
     <polyline points="${pts.join(" ")}" /><circle cx="${sx}" cy="${sy}" r="2.6" /></svg>`;
 }
 
+// The real route from Strava (points pre-fitted to the viewBox by lib/strava.js).
+function realRouteSVG(points) {
+  if (!/^[\d., -]+$/.test(points)) return "";
+  const [sx, sy] = points.split(" ")[0].split(",");
+  return `<svg class="strava-card__route" viewBox="0 0 100 64" aria-hidden="true">
+    <polyline points="${points}" /><circle cx="${sx}" cy="${sy}" r="2.6" /></svg>`;
+}
+
 function stravaCard(a) {
   const stats = [];
   if (a.distanceKm) stats.push(["Distance", `${a.distanceKm.toFixed(1)} km`], pace(a));
@@ -286,8 +353,9 @@ function stravaCard(a) {
       <p class="strava-card__head">${ICONS.pulse}${esc(a.type)} · synced from Strava</p>
       <p class="strava-card__name">${esc(a.name)}</p>
       <dl class="strava-card__stats">${stats.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
+      ${/^\d+$/.test(a.stravaId || "") ? `<a class="strava-card__link" href="https://www.strava.com/activities/${a.stravaId}" target="_blank" rel="noopener">View on Strava</a>` : ""}
     </div>
-    ${a.distanceKm ? routeSVG(a.seed) : ""}
+    ${a.route ? realRouteSVG(a.route) : a.distanceKm && a.seed != null ? routeSVG(a.seed) : ""}
   </div>`;
 }
 
@@ -399,26 +467,37 @@ function attachmentsHTML() {
 
 function stravaPanelHTML() {
   if (!stravaOpen) return "";
-  if (!state.strava) {
+  if (!strava) return `<div class="strava-panel"><p class="muted">Loading your Strava activities…</p></div>`;
+  if (!strava.configured && !strava.error) {
+    return `<div class="strava-panel"><p class="muted">Strava isn't set up on this server yet.</p></div>`;
+  }
+  if (!strava.connected && !strava.error) {
     return `<div class="strava-panel strava-panel--connect">
       <span class="strava-panel__logo">${ICONS.pulse}</span>
       <div class="strava-panel__text">
         <p><strong>Connect Strava</strong></p>
         <p class="muted">Import runs, rides and workouts straight into your progress posts.</p>
       </div>
-      <button type="button" class="btn btn--strava" data-action="strava-connect">Connect with Strava</button>
+      <a class="btn btn--strava" href="/api/strava/connect">Connect with Strava</a>
     </div>`;
   }
+  const list = strava.activities || [];
   return `<div class="strava-panel">
-    <p class="strava-panel__title">Recent Strava activities
-      <button type="button" class="link-btn" data-action="strava-disconnect">Disconnect</button></p>
-    <ul>${STRAVA_ACTIVITIES.map(
-      (a) => `<li><button type="button" class="strava-pick" data-action="strava-attach" data-activity="${a.id}">
-        <span class="strava-pick__type">${a.type}</span>
+    <p class="strava-panel__title">${strava.athlete ? `${esc(strava.athlete)}'s recent activities` : "Recent Strava activities"}
+      <span>
+        <button type="button" class="link-btn" data-action="strava-refresh" ${stravaLoading ? "disabled" : ""}>${stravaLoading ? "Loading…" : "Refresh"}</button>
+        · <button type="button" class="link-btn" data-action="strava-disconnect">Disconnect</button>
+      </span></p>
+    ${strava.error ? `<p class="muted">${esc(strava.error)}</p>` : ""}
+    ${!list.length && !strava.error ? `<p class="muted">No activities yet. Record one on Strava, then hit Refresh.</p>` : ""}
+    <ul>${list.map(
+      (a, i) => `<li><button type="button" class="strava-pick" data-action="strava-attach" data-i="${i}">
+        <span class="strava-pick__type">${esc(a.type)}</span>
         <span class="strava-pick__name">${esc(a.name)}</span>
         <span class="muted">${activitySummary(a)} · ${timeAgo(a.t)}</span>
       </button></li>`
     ).join("")}</ul>
+    <p class="strava-panel__powered">Powered by Strava</p>
   </div>`;
 }
 
@@ -497,48 +576,120 @@ function formatsHTML(s) {
   </section>`;
 }
 
+const fmtUptime = (h) => (h >= 1 ? `${Math.floor(h)}h ${Math.round((h % 1) * 60)}m` : `${Math.round(h * 60)}m`);
+
+// The stream player isn't built yet, so cards are links that explain that (data-action="watch").
+function streamCard(st, showSkill) {
+  const s = skillById(st.skill);
+  return `<article class="stream-card">
+    <a class="stream-card__media" href="#" data-action="watch" aria-label="${esc(st.user)} streaming ${esc(st.sub)}">
+      <div class="thumb"></div>
+      <span class="badge-live">Live</span>
+      <span class="badge-viewers">${fmtCount(st.viewers)} watching · ${fmtUptime(st.startedH)}</span>
+    </a>
+    <div class="stream-card__body">
+      ${avatar(st.user, st.hue)}
+      <div class="stream-card__text">
+        <a href="#" data-action="watch"><h3 class="stream-card__title" title="${esc(st.title)}">${esc(st.title)}</h3></a>
+        <p class="stream-card__meta">${esc(st.user)}</p>
+        <p class="stream-card__meta">${showSkill ? `<a href="${skillHref(s.id)}">${s.name}</a> · ` : ""}${esc(st.sub)}</p>
+      </div>
+    </div>
+  </article>`;
+}
+
+function requestsHTML() {
+  const rows = [...state.requests].sort((a, b) => b.votes - a.votes);
+  return `<section class="panel" id="requestPanel">
+    <h2 class="panel__title">Request a community</h2>
+    <p class="muted">Don't see your skill? Request it or upvote one. A community opens at ${REQUEST_GOAL} requests.</p>
+    <form class="request-form" data-form="request">
+      <input class="field" name="name" required maxlength="40" autocomplete="off" placeholder="What do you want to learn?" aria-label="Community name" />
+      <button class="btn btn--primary" type="submit">Request</button>
+    </form>
+    <ul class="requests">${rows
+      .map((r) => {
+        const pct = Math.min(100, Math.round((r.votes / REQUEST_GOAL) * 100));
+        return `<li class="request">
+          <button class="request__vote ${r.voted ? "is-voted" : ""}" data-action="vote" data-req="${r.id}"
+            aria-pressed="${r.voted}" aria-label="${r.voted ? "Remove your request for" : "Request"} ${esc(r.name)}">${ICONS.up}<span>${r.votes}</span></button>
+          <div class="request__main">
+            <p class="request__name">${esc(r.name)}${r.votes >= REQUEST_GOAL ? ` <span class="request__ready">Opening soon</span>` : ""}</p>
+            <div class="request__bar" role="progressbar" aria-valuenow="${r.votes}" aria-valuemax="${REQUEST_GOAL}" aria-label="${esc(r.name)} requests"><span style="width:${pct}%"></span></div>
+          </div>
+        </li>`;
+      })
+      .join("")}</ul>
+  </section>`;
+}
+
+const matchesQuery = (s) =>
+  !query || [s.name, s.blurb, ...s.subs].some((t) => t.toLowerCase().includes(query.toLowerCase()));
+
+function communityGridHTML() {
+  const counts = {};
+  state.posts.forEach((p) => (counts[p.skill] = (counts[p.skill] || 0) + 1));
+  const list = SKILLS.filter(matchesQuery);
+  if (!list.length) {
+    return `<p class="empty">No community for “${esc(query)}” yet. <button class="link-btn" data-action="request-query">Request it</button> and others can upvote it.</p>`;
+  }
+  return `<div class="skill-grid">${list
+    .map((s) =>
+      skillCard(s, `${fmtCount(s.learners + (state.joined.includes(s.id) ? 1 : 0))} members · ${plural(counts[s.id] || 0, "post")}`, liveIn(s.id).length)
+    )
+    .join("")}</div>`;
+}
+
 // ---------- Views ----------
 function renderSidenav() {
-  const item = (href, active, icon, hue, name, sub, joined) => `
+  const item = (href, active, icon, hue, name, sub, live) => `
     <li><a class="channel ${active ? "is-active" : ""}" href="${href}" title="${name}" ${active ? 'aria-current="page"' : ""}>
       <span class="channel__avatar skill-icon" style="background:${hue == null ? "var(--thumb-bg)" : `hsl(${hue},45%,42%)`}">${icon}</span>
       <div class="channel__info"><p class="channel__name">${name}</p><p class="channel__game">${sub}</p></div>
-      ${joined ? `<span class="channel__viewers">Joined</span>` : ""}
+      ${live ? `<span class="channel__viewers"><span class="live-dot"></span>${live}</span>` : ""}
     </a></li>`;
   $("#skillNav").innerHTML =
-    item("#", !view.skill, ICONS.grid, null, "All skills", "Browse everything", false) +
+    item("#", !view.skill, ICONS.grid, null, "All communities", "Discover & request", LIVE_STREAMS.length) +
     SKILLS.map((s) =>
-      item(skillHref(s.id), view.skill?.id === s.id, s.icon, s.hue, s.name, s.subs.join(", "), state.joined.includes(s.id))
+      item(skillHref(s.id), view.skill?.id === s.id, s.icon, s.hue, s.name,
+        state.joined.includes(s.id) ? "Joined" : s.subs.join(", "), liveIn(s.id).length)
     ).join("");
 }
 
 function renderHub() {
-  document.title = "Learn a New Skill · Stream Platform";
-  const counts = {};
-  state.posts.forEach((p) => (counts[p.skill] = (counts[p.skill] || 0) + 1));
-  const recent = state.posts.filter((p) => p.kind === "progress").sort((a, b) => b.t - a.t).slice(0, 8);
+  document.title = "Communities · Stream Platform";
+  const popular = state.posts.filter((p) => p.kind === "progress").sort(byPopular).slice(0, 8);
   const discussions = state.posts.filter((p) => p.kind === "thread").sort((a, b) => lastActivity(b) - lastActivity(a)).slice(0, 6);
+  const live = [...LIVE_STREAMS].sort((a, b) => b.viewers - a.viewers).slice(0, 4);
 
   main.innerHTML = `
     <section class="learn-hero">
-      <p class="learn-hero__eyebrow">Learn a New Skill</p>
-      <h1 class="learn-hero__title">Get better at something, together.</h1>
-      <p class="learn-hero__sub">Pick a skill, post your progress, and cheer on other learners. Share photos and videos of your work, sync workouts from Strava, or start a discussion.</p>
+      <p class="learn-hero__eyebrow">Communities</p>
+      <h1 class="learn-hero__title">Learn anything, alongside people learning it too.</h1>
+      <p class="learn-hero__sub">Every community is a skill people are working on. Watch members stream their practice, see the progress posts everyone's cheering for, and share your own.</p>
     </section>
 
     <section class="shelf">
-      <h2 class="shelf__title">Popular skills</h2>
-      <div class="skill-grid">${SKILLS.map((s) =>
-        skillCard(s, `${fmtCount(s.learners + (state.joined.includes(s.id) ? 1 : 0))} learners · ${plural(counts[s.id] || 0, "post")}`)
-      ).join("")}</div>
+      <div class="shelf__head">
+        <h2 class="shelf__title">All communities</h2>
+        <input class="field community-search" type="search" id="communitySearch" value="${esc(query)}"
+          placeholder="Find a community" aria-label="Find a community" />
+      </div>
+      <div id="communityGrid">${communityGridHTML()}</div>
+    </section>
+
+    <section class="shelf">
+      <h2 class="shelf__title"><span class="live-dot"></span> Live now: learning on stream</h2>
+      <div class="stream-grid">${live.map((st) => streamCard(st, true)).join("")}</div>
     </section>
 
     <div class="learn-cols">
       <section class="shelf">
-        <h2 class="shelf__title">Recent progress</h2>
-        <div class="feed">${recent.map((p) => postCard(p, true)).join("")}</div>
+        <h2 class="shelf__title">Popular progress</h2>
+        <div class="feed">${popular.map((p) => postCard(p, true)).join("")}</div>
       </section>
       <aside class="learn-aside">
+        ${requestsHTML()}
         <section class="panel">
           <h2 class="panel__title">Active discussions</h2>
           <ul class="discussion-list">${discussions
@@ -555,27 +706,31 @@ function renderHub() {
 }
 
 function renderSkill() {
-  const { skill: s, tab, sub } = view;
-  document.title = `${s.name} · Learn a New Skill`;
+  const { skill: s, tab, sub, sort } = view;
+  document.title = `${s.name} · Communities`;
   const inSkill = state.posts.filter((p) => p.skill === s.id);
   const posts = inSkill.filter((p) => !sub || p.sub === sub);
-  const progress = posts.filter((p) => p.kind === "progress").sort((a, b) => b.t - a.t);
+  const progress = posts.filter((p) => p.kind === "progress").sort(sort === "new" ? (a, b) => b.t - a.t : byPopular);
   const threads = posts.filter((p) => p.kind === "thread").sort((a, b) => lastActivity(b) - lastActivity(a));
+  const live = liveIn(s.id, sub);
   const joined = state.joined.includes(s.id);
-  const subHref = (t) => skillHref(s.id, { tab, ...(t ? { sub: t } : {}) });
-  const tabHref = (t) => skillHref(s.id, { tab: t, ...(sub ? { sub } : {}) });
+  // This page's URL with some params changed (pass sub: null to clear the topic).
+  const here = ({ tab: t = tab, sub: u = sub, sort: o = sort } = {}) =>
+    skillHref(s.id, { tab: t, ...(u ? { sub: u } : {}), ...(o === "new" ? { sort: o } : {}) });
+  const subHref = (t) => here({ sub: t });
   const empty = (msg) => `<p class="empty">${msg}</p>`;
 
   main.innerHTML = `
-    <a class="back-link" href="#">← All skills</a>
+    <a class="back-link" href="#">← All communities</a>
     <header class="skill-head">
       <div class="skill-head__icon">${s.icon}</div>
       <div class="skill-head__text">
         <h1 class="skill-head__name">${s.name}</h1>
         <p class="skill-head__blurb">${s.blurb}</p>
-        <p class="skill-head__stats">${fmtCount(s.learners + (joined ? 1 : 0))} learners · ${plural(inSkill.length, "post")}</p>
+        <p class="skill-head__stats">${fmtCount(s.learners + (joined ? 1 : 0))} members · ${plural(inSkill.length, "post")}${
+          live.length ? ` · <span class="live-dot"></span>${live.length} live now` : ""}</p>
       </div>
-      <button class="btn ${joined ? "btn--secondary" : "btn--primary"}" data-action="join" aria-pressed="${joined}">${joined ? "Joined ✓" : "Join skill"}</button>
+      <button class="btn ${joined ? "btn--secondary" : "btn--primary"}" data-action="join" aria-pressed="${joined}">${joined ? "Joined ✓" : "Join community"}</button>
     </header>
 
     <nav class="chips" aria-label="Topics">
@@ -583,9 +738,18 @@ function renderSkill() {
       ${s.subs.map((t) => `<a class="chip ${sub === t ? "is-active" : ""}" href="${subHref(t)}">${esc(t)}</a>`).join("")}
     </nav>
 
+    <section class="shelf">
+      <h2 class="shelf__title">${live.length ? `<span class="live-dot"></span> ` : ""}Live now${sub ? ` in ${esc(sub)}` : ""}</h2>
+      ${
+        live.length
+          ? `<div class="stream-grid">${live.map((st) => streamCard(st, false)).join("")}</div>`
+          : empty(`Nobody's streaming ${esc((sub || s.name).toLowerCase())} right now. Check back soon.`)
+      }
+    </section>
+
     <nav class="tabs" aria-label="Sections">
-      <a class="tab ${tab === "progress" ? "is-active" : ""}" href="${tabHref("progress")}">Progress <span class="tab__count">${progress.length}</span></a>
-      <a class="tab ${tab === "forum" ? "is-active" : ""}" href="${tabHref("forum")}">Discussions <span class="tab__count">${threads.length}</span></a>
+      <a class="tab ${tab === "progress" ? "is-active" : ""}" href="${here({ tab: "progress" })}">Progress <span class="tab__count">${progress.length}</span></a>
+      <a class="tab ${tab === "forum" ? "is-active" : ""}" href="${here({ tab: "forum" })}">Discussions <span class="tab__count">${threads.length}</span></a>
     </nav>
 
     <div class="learn-cols">
@@ -595,6 +759,10 @@ function renderSkill() {
             ? `${threadComposer(s, sub)}
                ${threads.length ? `<ul class="thread-list">${threads.map(threadRow).join("")}</ul>` : empty("No discussions yet. Ask the first question!")}`
             : `${progressComposer(s, sub)}
+               <nav class="sort" aria-label="Sort progress posts">
+                 <a class="chip ${sort !== "new" ? "is-active" : ""}" href="${here({ sort: "top" })}">Popular</a>
+                 <a class="chip ${sort === "new" ? "is-active" : ""}" href="${here({ sort: "new" })}">Recent</a>
+               </nav>
                ${progress.length ? `<div class="feed">${progress.map((p) => postCard(p, false)).join("")}</div>` : empty("No progress posts yet. Share where you're starting from!")}`
         }
       </div>
@@ -622,7 +790,8 @@ function route() {
   if (skill !== view.skill) resetDraft();
   const sub = skill && skill.subs.includes(q.get("sub")) ? q.get("sub") : null;
   const tab = ["progress", "forum"].includes(q.get("tab")) ? q.get("tab") : skill?.defaultTab || "progress";
-  view = { skill, tab, sub };
+  const sort = q.get("sort") === "new" ? "new" : "top";
+  view = { skill, tab, sub, sort };
   const threadId = q.get("thread");
   if (threadId) openThreads.add(threadId);
   render();
@@ -645,6 +814,37 @@ function refreshStrava() {
   $('[data-action="strava-toggle"]')?.setAttribute("aria-expanded", String(stravaOpen));
 }
 
+function refreshRequests() {
+  const el = $("#requestPanel");
+  if (el) el.outerHTML = requestsHTML();
+}
+
+// Request a new community: open the existing one if it already exists, upvote a matching
+// request, or start a new request with the member's vote.
+function addRequest(raw) {
+  const name = raw.trim().replace(/\s+/g, " ").slice(0, 40);
+  if (!name) return;
+  const key = name.toLowerCase();
+  const skill = SKILLS.find((s) => s.name.toLowerCase() === key || s.subs.some((t) => t.toLowerCase() === key));
+  if (skill) {
+    location.hash = skillHref(skill.id).split("#")[1];
+    return toast(`${skill.name} already has a community. Welcome in!`);
+  }
+  let r = state.requests.find((x) => x.name.toLowerCase() === key);
+  if (r && r.voted) return toast(`You've already requested ${r.name}.`);
+  if (r) {
+    r.voted = true;
+    r.votes += 1;
+  } else {
+    r = { id: uid(), name: name[0].toUpperCase() + name.slice(1), votes: 1, voted: true };
+    state.requests.push(r);
+  }
+  persist();
+  refreshRequests();
+  $("#requestPanel")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  toast(`Requested ${r.name} — ${REQUEST_GOAL - r.votes > 0 ? `${REQUEST_GOAL - r.votes} more to open it` : "it's ready to open"}.`);
+}
+
 const toggle = (set, id) => (set.has(id) ? set.delete(id) : set.add(id));
 
 // ---------- Events ----------
@@ -655,6 +855,21 @@ main.addEventListener("click", (e) => {
   const p = id && state.posts.find((x) => x.id === id);
 
   switch (el.dataset.action) {
+    case "watch":
+      e.preventDefault();
+      toast("The stream player is coming soon.");
+      break;
+    case "vote": {
+      const r = state.requests.find((x) => x.id === el.dataset.req);
+      r.voted = !r.voted;
+      r.votes += r.voted ? 1 : -1;
+      persist();
+      refreshRequests();
+      break;
+    }
+    case "request-query":
+      addRequest(query);
+      break;
     case "like":
       p.liked = !p.liked;
       p.likes += p.liked ? 1 : -1;
@@ -701,21 +916,20 @@ main.addEventListener("click", (e) => {
     case "strava-toggle":
       stravaOpen = !stravaOpen;
       refreshStrava();
+      if (stravaOpen && !strava && !stravaLoading) loadStrava();
       break;
-    case "strava-connect":
-      // Real flow: redirect to https://www.strava.com/oauth/authorize?client_id=…&scope=activity:read
-      state.strava = true;
-      persist();
-      refreshStrava();
-      toast("Strava connected (demo data)");
+    case "strava-refresh":
+      if (!stravaLoading) loadStrava();
       break;
     case "strava-disconnect":
-      state.strava = false;
-      persist();
-      refreshStrava();
+      if (!confirm("Disconnect Strava? Posts you already shared keep their activity.")) return;
+      fetch("/api/strava", { method: "DELETE", credentials: "same-origin" })
+        .then((r) => r.json())
+        .then((data) => { strava = { ...data, activities: [] }; refreshStrava(); toast("Strava disconnected."); })
+        .catch(() => toast("Couldn't disconnect Strava. Try again."));
       break;
     case "strava-attach": {
-      const { id: _id, t: _t, ...a } = STRAVA_ACTIVITIES.find((x) => x.id === el.dataset.activity);
+      const { t: _t, ...a } = strava.activities[Number(el.dataset.i)];
       draft.strava = a;
       stravaOpen = false;
       refreshStrava();
@@ -742,10 +956,15 @@ main.addEventListener("submit", (e) => {
       draft = { media: [], strava: null }; // media now belongs to the post — don't revoke
       stravaOpen = false;
       persist();
-      render();
+      // A brand-new post would sit low in Popular, so show Recent where it's on top.
+      if (view.sort === "new") render();
+      else location.hash = skillHref(view.skill.id, { tab: "progress", ...(view.sub ? { sub: view.sub } : {}), sort: "new" }).split("#")[1];
       toast("Progress posted 🎉");
       break;
     }
+    case "request":
+      addRequest(String(data.get("name") || ""));
+      break;
     case "thread": {
       const title = String(data.get("title") || "").trim();
       if (!title) return;
@@ -771,6 +990,13 @@ main.addEventListener("submit", (e) => {
       break;
     }
   }
+});
+
+// Hub search filters the community grid in place (keeps focus in the search box).
+main.addEventListener("input", (e) => {
+  if (e.target.id !== "communitySearch") return;
+  query = e.target.value.trim();
+  $("#communityGrid").innerHTML = communityGridHTML();
 });
 
 // Images are downscaled to JPEG data URLs so they fit in localStorage.
@@ -813,4 +1039,25 @@ $("#mediaInput").addEventListener("change", async (e) => {
 
 $("#collapseBtn").addEventListener("click", () => document.body.classList.toggle("side-collapsed"));
 window.addEventListener("hashchange", route);
-route();
+
+// Coming back from Strava's consent screen (api/strava.js adds strava=connected|error).
+// Strip those params first, then route() (which resets the draft, closing the Strava panel),
+// then reopen the panel.
+{
+  const q = new URLSearchParams(location.hash.slice(1));
+  const result = q.get("strava");
+  const reason = q.get("reason");
+  if (result) {
+    q.delete("strava");
+    q.delete("reason");
+    history.replaceState(null, "", `#${q}`);
+  }
+  route();
+  if (result === "connected") {
+    stravaOpen = true;
+    loadStrava();
+    toast("Strava connected. Pick an activity to share.");
+  } else if (result) {
+    toast(reason || "Strava wasn't connected.");
+  }
+}

@@ -1,5 +1,5 @@
 // Onboarding: 1) pick the habits to practice, 2) write a commitment statement for each
-// (parsed into days + time for the reminder bot), 3) add a phone number for text reminders.
+// (parsed into days + time for the reminder bot), 3) connect a phone for reminders.
 // New accounts land here from auth-guard.js until POST /api/me/onboarding succeeds.
 // Revisiting the page edits the existing commitments.
 
@@ -200,11 +200,10 @@ function samplePing() {
     leetcode: `LeetCode at ${fmtTime(d.time)}. Pick your problem now so you can start on time.`,
   };
   return `
-    <figure class="ping" aria-label="Example reminder text">
+    <figure class="ping" aria-label="Example reminder">
       <span class="ping__time">${fmtTime(minusMinutes(d.time, d.remindBefore))}</span>
-      <p class="ping__bubble">${esc(lines[h.id])}<br /><span class="ping__quote">You said: “${esc(d.statement.trim() || h.example)}”</span>
-        <span class="ping__reply">Reply SKIP to take today off.</span></p>
-      <p class="ping__bubble ping__bubble--me">On my way 💪</p>
+      <p class="ping__bubble">${esc(lines[h.id])}<br /><span class="ping__quote">You said: “${esc(d.statement.trim() || h.example)}”</span></p>
+      ${state.phone.channel?.buttons === false ? "" : `<div class="ping__buttons"><span>💪 On my way</span><span>Skip today</span></div>`}
     </figure>`;
 }
 
@@ -215,8 +214,8 @@ function renderReminders() {
     <section class="ob__step">
       <p class="eyebrow">Step 3 of 3</p>
       <h1 class="ob__title">Let us hold you to it.</h1>
-      <p class="ob__sub">We'll text you before each session, and check in afterward if you haven't logged it.
-        Reply to the texts to skip a day or see what's left.</p>
+      <p class="ob__sub">We'll message you${state.phone.channel?.label ? ` on ${esc(state.phone.channel.label)}` : ""} before each session,
+        and check in afterward if you haven't logged it. Reply to say you're on your way or to skip a day.</p>
       <div class="ob__reminders">
         <div class="phone-box" id="phoneBox"></div>
         ${samplePing()}
@@ -232,7 +231,7 @@ function renderReminders() {
   bindPhoneForm($("#phoneBox"), () => state.phone, (s) => {
     const wasVerified = state.phone.verified;
     state.phone = s;
-    if (s.verified && !wasVerified) toast("You're connected! Check your texts.");
+    if (s.verified && !wasVerified) toast(s.channel?.replyWindowHours ? `You're connected! One last step: say hi on ${s.channel.label}.` : "You're connected!");
     const ok = !s.configured || s.verified;
     $("#obFinish").hidden = !ok;
     main.querySelector(".ob__skip")?.toggleAttribute("hidden", ok);

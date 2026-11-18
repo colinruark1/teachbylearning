@@ -1,10 +1,12 @@
-// Admin dashboard: signed-up users with ways to reach them (email, text), and the health
+// Admin dashboard: signed-up users with ways to reach them (email, phone), and the health
 // of each API/integration. Data from GET /api/admin/overview (api/admin.js), admins only.
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
 let data = { users: [], health: [] };
-let composeFor = null; // user id whose text composer is open
+let compose = null; // { id, channel: "phone" | "email" } for the open composer
+// Active messaging providers (from lib/messaging via /api/admin/overview).
+const ch = () => data.messaging ?? { phone: { label: "phone" }, email: {} };
 
 let toastTimer;
 function toast(msg) {
@@ -49,7 +51,7 @@ function renderStats() {
     [u.length, "users"],
     [u.filter((x) => age(x.createdAt) < 7 * DAY).length, "new this week"],
     [u.filter((x) => x.onboardedAt).length, "finished onboarding"],
-    [u.filter((x) => x.phoneVerifiedAt).length, "getting texts"],
+    [u.filter((x) => x.phoneVerifiedAt).length, "getting phone reminders"],
     [u.filter((x) => age(x.lastCheckinAt) < DAY).length, "logged in last 24 h"],
   ];
   $("#stats").innerHTML = stats.map(([n, l]) => `<li><b>${n}</b><span>${l}</span></li>`).join("");
@@ -87,13 +89,22 @@ function filtered() {
 }
 
 function contactCell(u) {
-  const email = `<a class="contact contact--email" href="mailto:${esc(u.email)}">${esc(u.email)}</a>`;
+  const emailBtn = ch().email.configured
+    ? ` <button type="button" class="link-btn" data-compose="email" data-user="${esc(u.id)}">Send email</button>` : "";
+  const email = `<span class="contact"><a class="contact--email" href="mailto:${esc(u.email)}">${esc(u.email)}</a>${emailBtn}</span>`;
   let phone;
   if (u.phone && u.phoneVerifiedAt) {
+    const label = ch().phone.label;
+    const hours = ch().phone.replyWindowHours;
+    // Channels like WhatsApp only allow free-form messages within N hours of the user's last message.
+    const windowNote = !hours ? ""
+      : `<span class="muted contact__window">${age(u.lastInboundAt) < hours * 36e5 - 10 * 6e4
+        ? `${hours} h reply window open (last message ${relTime(u.lastInboundAt)})`
+        : u.lastInboundAt ? "Reply window closed: sends as template" : "Hasn't messaged yet: sends as template"}</span>`;
     phone = `<span class="contact contact--phone">
-        <a href="sms:${esc(u.phone)}" title="Open in your Messages app">${esc(fmtPhone(u.phone))}</a>
-        <button type="button" class="link-btn" data-text="${esc(u.id)}">Text via Linq</button>
-      </span>`;
+        <a href="${esc(u.phoneLink || `sms:${u.phone}`)}" target="_blank" rel="noopener" title="Message on ${esc(label)}">${esc(fmtPhone(u.phone))}</a>
+        <button type="button" class="link-btn" data-compose="phone" data-user="${esc(u.id)}">Message on ${esc(label)}</button>
+      </span>${windowNote}`;
   } else if (u.phone) {
     phone = `<span class="contact muted">${esc(fmtPhone(u.phone))} · not verified</span>`;
   } else {
@@ -110,16 +121,20 @@ function userRow(u) {
     const h = habitById(id);
     return h ? `<span class="mini-habit" style="--hue:${h.hue}" title="${esc(h.name)}">${h.icon}<span>${esc(h.name)}</span></span>` : "";
   }).join("") || `<span class="muted">—</span>`;
-  const composer = composeFor === u.id ? `
+  const isEmail = compose?.channel === "email";
+  const composer = compose?.id === u.id ? `
     <tr class="compose-row"><td colspan="6">
-      <form class="compose" data-user="${esc(u.id)}">
-        <label class="ob-label" for="msg-${esc(u.id)}">Text ${esc(u.name || u.email)} at ${esc(fmtPhone(u.phone))}</label>
-        <textarea class="field" id="msg-${esc(u.id)}" name="message" rows="3" maxlength="1000"
-          placeholder="Hey! How's the streak going?"></textarea>
+      <form class="compose" data-user="${esc(u.id)}" data-channel="${compose.channel}">
+        <span class="ob-label">${isEmail ? `Email ${esc(u.name || u.email)} at ${esc(u.email)}`
+          : `Message ${esc(u.name || u.email)} on ${esc(ch().phone.label)} at ${esc(fmtPhone(u.phone))}`}</span>
+        ${isEmail ? `<input class="field" name="subject" maxlength="200" placeholder="Subject" aria-label="Subject" />` : ""}
+        <textarea class="field" name="message" rows="${isEmail ? 6 : 3}" maxlength="${isEmail ? 10000 : 1000}"
+          aria-label="Message" placeholder="Hey! How's the streak going?"></textarea>
         <div class="compose__bar">
-          <span class="muted">Sent from your Linq number. They can reply STOP to opt out.</span>
+          <span class="muted">Sent via ${esc(isEmail ? ch().email.id : ch().phone.id)}.${!isEmail && ch().phone.replyWindowHours
+            ? " Outside their reply window it goes out as your approved template." : ""}</span>
           <button type="button" class="btn btn--secondary" data-cancel>Cancel</button>
-          <button type="submit" class="btn btn--primary">Send text</button>
+          <button type="submit" class="btn btn--primary">Send</button>
         </div>
       </form>
     </td></tr>` : "";
@@ -145,7 +160,7 @@ function renderUsers() {
   $("#userRows").innerHTML = list.length
     ? list.map(userRow).join("")
     : `<tr><td colspan="6"><p class="empty">No users match.</p></td></tr>`;
-  if (composeFor) $(`.compose[data-user="${CSS.escape(composeFor)}"] textarea`)?.focus();
+  if (compose) $(`.compose[data-user="${CSS.escape(compose.id)}"] .field`)?.focus();
 }
 
 /* ---------- Load + events ---------- */
@@ -183,24 +198,33 @@ $("#copyEmails").addEventListener("click", async () => {
 });
 
 $("#userRows").addEventListener("click", (e) => {
-  const t = e.target.closest("[data-text]");
-  if (t) { composeFor = composeFor === t.dataset.text ? null : t.dataset.text; renderUsers(); return; }
-  if (e.target.closest("[data-cancel]")) { composeFor = null; renderUsers(); }
+  const t = e.target.closest("[data-compose]");
+  if (t) {
+    const same = compose?.id === t.dataset.user && compose?.channel === t.dataset.compose;
+    compose = same ? null : { id: t.dataset.user, channel: t.dataset.compose };
+    renderUsers();
+    return;
+  }
+  if (e.target.closest("[data-cancel]")) { compose = null; renderUsers(); }
 });
 
 $("#userRows").addEventListener("submit", async (e) => {
   const form = e.target.closest(".compose");
   if (!form) return;
   e.preventDefault();
+  const isEmail = form.dataset.channel === "email";
   const message = form.message.value.trim();
+  if (isEmail && !form.subject.value.trim()) return form.subject.focus();
   if (!message) return form.message.focus();
   const btn = form.querySelector("[type=submit]");
   btn.disabled = true;
   try {
-    await adminApi("text", { method: "POST", body: { userId: form.dataset.user, message } });
-    composeFor = null;
+    const r = isEmail
+      ? await adminApi("email", { method: "POST", body: { userId: form.dataset.user, subject: form.subject.value.trim(), message } })
+      : await adminApi("text", { method: "POST", body: { userId: form.dataset.user, message } });
+    compose = null;
     renderUsers();
-    toast("Text sent.");
+    toast(isEmail ? "Email sent." : r.via === "template" ? "Sent as your approved template (their reply window is closed)." : "Message sent.");
   } catch (ex) {
     toast(ex.message);
     btn.disabled = false;

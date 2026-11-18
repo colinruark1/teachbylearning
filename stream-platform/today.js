@@ -366,7 +366,7 @@ document.addEventListener("submit", async (e) => {
   }
   renderAll();
   bindPhoneForm($("#phonePanel"), () => data.phone, (s) => {
-    if (s.verified && !data.phone.verified) toast("You're connected! Check your texts.");
+    if (s.verified && !data.phone.verified) toast(s.channel?.replyWindowHours ? `You're connected! One last step: say hi on ${s.channel.label}.` : "You're connected!");
     data.phone = s;
   });
   const params = new URLSearchParams(location.search);

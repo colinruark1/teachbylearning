@@ -193,6 +193,17 @@ function proofHTML(c) {
   return `<details class="log__text"><summary>Read it</summary><pre>${esc(c.proof)}</pre></details>`;
 }
 
+// Whether a check-in is in its community: a link once posted, else a button to post it
+// (for check-ins logged before sharing existed, or when posting failed).
+function shareHTML(c) {
+  const s = communityFor(c.habit);
+  if (c.postId) {
+    const where = s ? ` in ${esc(s.name)}` : "";
+    return s ? `<p class="log__share muted">${check} <a href="${skillHref(s.id, { sort: "new" })}">Posted${where}</a></p>` : "";
+  }
+  return s ? `<button type="button" class="link-btn log__share" data-action="share" data-id="${c.id}">Post to ${esc(s.name)}</button>` : "";
+}
+
 function logItem(c) {
   const h = habitById(c.habit);
   if (!h) return "";
@@ -208,6 +219,7 @@ function logItem(c) {
         ${extra ? `<p class="log__extra">${extra}</p>` : ""}
         ${proofHTML(c)}
         ${c.reflection ? `<p class="log__reflection">${esc(c.reflection)}</p>` : ""}
+        ${shareHTML(c)}
       </div>
       <button type="button" class="icon-btn log__delete" data-action="delete" data-id="${c.id}" aria-label="Delete this entry">
         <svg viewBox="0 0 20 20" width="16" height="16"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
@@ -288,6 +300,20 @@ document.addEventListener("click", async (e) => {
     case "close": openHabit = null; renderCards(); break;
     case "pick-photo": photoFor = form.dataset.habit; $("#photoInput").click(); break;
     case "remove-photo": draftFor(habitById(form.dataset.habit)).photo = ""; refreshProof(form); break;
+    case "share": {
+      const c = data.checkins.find((x) => String(x.id) === a.dataset.id);
+      a.disabled = true;
+      try {
+        const post = await shareCheckin(habitById(c.habit), c);
+        c.postId = post.id;
+        renderLog();
+        toast(`Posted to ${communityFor(c.habit)?.name || "the community"}.`);
+      } catch (ex) {
+        a.disabled = false;
+        toast(ex.message);
+      }
+      break;
+    }
     case "delete": {
       if (!confirm("Delete this entry? This can't be undone.")) return;
       try {
@@ -358,7 +384,7 @@ document.addEventListener("submit", async (e) => {
     const community = d.share ? communityFor(h.id) : null;
     let shared = false, shareError = "";
     if (community) {
-      try { await shareCheckin(h, saved); shared = true; } catch (ex) { shareError = ex.message; }
+      try { saved.postId = (await shareCheckin(h, saved)).id; shared = true; } catch (ex) { shareError = ex.message; }
     }
     delete drafts[h.id];
     openHabit = null;
@@ -366,7 +392,7 @@ document.addEventListener("submit", async (e) => {
     renderCards();
     renderLog();
     toast(shared ? `${h.name} logged and posted to ${community.name}.`
-      : community ? `${h.name} logged, but it couldn't be posted to ${community.name}. ${shareError}`
+      : community ? `${h.name} logged, but it couldn't be posted to ${community.name}. ${shareError} You can post it from your log.`
       : `${h.name} logged. That's your 1% for today.`);
   } catch (ex) {
     err.textContent = ex.message;

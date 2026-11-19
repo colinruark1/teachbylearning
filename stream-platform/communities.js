@@ -326,6 +326,7 @@ function postCard(p, showSkill) {
     </header>
     ${p.body ? `<p class="post__body">${esc(p.body)}</p>` : ""}
     ${mediaHTML(p.media)}
+    ${p.transcript ? `<p class="transcript">${esc(p.transcript)}</p>` : ""}
     ${p.strava ? stravaCard(p.strava) : ""}
     ${actionsHTML(p)}
     ${openComments.has(p.id) ? commentsHTML(p) : ""}
@@ -350,6 +351,7 @@ function threadRow(p) {
             <div class="thread__toolbar"><span class="post__meta">Posted ${timeAgo(p.t)}</span>${deleteBtn(p)}</div>
             ${p.body ? `<p class="post__body">${esc(p.body)}</p>` : ""}
             ${mediaHTML(p.media)}
+            ${p.transcript ? `<p class="transcript">${esc(p.transcript)}</p>` : ""}
             ${actionsHTML(p, { commentToggle: false })}
             ${commentsHTML(p)}
           </div>`

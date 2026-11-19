@@ -2,7 +2,7 @@
 //
 //   GET    /api/me/state            commitments, recent check-ins, streak days, text-reminder status
 //   POST   /api/me/onboarding       save chosen habits + commitments; marks onboarding done
-//   POST   /api/me/checkins         log a session: proof, details, reflection
+//   POST   /api/me/checkins         log a session: proof (photos may carry a transcript), details, reflection
 //   DELETE /api/me/checkins/:id
 //   GET    /api/me/proof/:id        a check-in's photo (image/jpeg)
 //   GET    /api/me/phone            phone reminder status (see phoneStatus)
@@ -47,7 +47,7 @@ async function getState(user) {
     pool.query(
       `select id, habit, day, proof_type as "proofType",
               case when proof_type = 'photo' then null else proof end as proof,
-              details, reflection, created_at as "createdAt",
+              proof_transcript as transcript, details, reflection, created_at as "createdAt",
               (select p.id from community_post p where p.checkin_id = habit_checkin.id) as "postId"
        from habit_checkin where user_id = $1 order by day desc, created_at desc limit 40`, [user.id]),
     pool.query(
@@ -139,7 +139,9 @@ function parseProof(p) {
     const bytes = Buffer.from(m[1], "base64");
     if (bytes.length > MAX_PHOTO_BYTES) bad("That photo is too large.");
     if (bytes[0] !== 0xff || bytes[1] !== 0xd8) bad("That file isn't a JPEG photo.");
-    return { type, bytes };
+    // Transcribed in the browser (stream-platform/ocr.js): text, '' for "No strong OCR", or null.
+    const transcript = typeof p.transcript === "string" ? p.transcript.trim().slice(0, 4000) : null;
+    return { type, bytes, transcript };
   }
   if (type === "link") {
     let url;
@@ -184,12 +186,12 @@ async function addCheckin(user, body) {
   }
   try {
     const { rows } = await pool.query(
-      `insert into habit_checkin (user_id, habit, day, proof_type, proof, proof_storage, details, reflection)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)
+      `insert into habit_checkin (user_id, habit, day, proof_type, proof, proof_storage, proof_transcript, details, reflection)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        returning id, habit, day, proof_type as "proofType",
                  case when proof_type = 'photo' then null else proof end as proof,
-                 details, reflection, created_at as "createdAt"`,
-      [user.id, body.habit, day, proof.type, value, storedIn, details, reflection]);
+                 proof_transcript as transcript, details, reflection, created_at as "createdAt"`,
+      [user.id, body.habit, day, proof.type, value, storedIn, proof.transcript ?? null, details, reflection]);
     return rows[0];
   } catch (e) {
     if (storedIn) await storage.remove(storedIn, [value]).catch(() => {}); // don't leave an orphaned file

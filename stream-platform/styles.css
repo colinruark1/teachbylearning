@@ -859,6 +859,9 @@ body.side-collapsed #collapseBtn svg { transform: scaleX(-1); }
 .post__delete { color: var(--text-muted); }
 .post__delete .ico { width: 16px; height: 16px; }
 .post__body { margin-top: 10px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Handwriting transcribed from a photo (stream-platform/ocr.js), shown right below the photo. */
+.transcript { margin: 8px 0 0; font-size: 14px; line-height: 1.55; font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ocr-status { margin: 8px 0 0; font-size: 13px; color: var(--text-muted); }
 
 .media {
   display: grid;

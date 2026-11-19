@@ -4,6 +4,7 @@
 
 // proof.types: how the user can prove they did it — "photo" (downscaled JPEG),
 //   "link" (URL) or "text" (pasted work). The first type is the default.
+//   proof.ocr: transcribe photos of handwriting (ocr.js, loaded on the Today page).
 // fields: the "what did you do" details stored with each check-in.
 // summary(details): one-line recap shown in the log.
 // skill + sub: the community (SKILLS id in skills.js) and subtopic that check-ins are shared
@@ -43,6 +44,7 @@ const HABITS = [
       types: ["text", "photo"],
       text: "Paste your poem",
       photo: "A photo of your handwritten draft",
+      ocr: true, // transcribe handwritten photos in the browser (ocr.js)
     },
     fields: [
       { key: "title", label: "Title", type: "text", required: true, placeholder: "Untitled is fine" },

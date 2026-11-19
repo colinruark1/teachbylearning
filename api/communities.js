@@ -32,6 +32,7 @@ async function listPosts(user, onlyId = null) {
     `select p.id, p.skill, p.sub, p.kind, p.body, p.minutes, p.user_id, u.name,
             (extract(epoch from p.created_at) * 1000)::float8 as t,
             coalesce(c.proof_type = 'photo', false) as photo,
+            case when c.proof_type = 'photo' then nullif(c.proof_transcript, '') end as transcript,
             (select count(*) from community_like l where l.post_id = p.id)::int as likes,
             exists (select 1 from community_like l where l.post_id = p.id and l.user_id = $1) as liked
      from community_post p
@@ -56,7 +57,7 @@ async function listPosts(user, onlyId = null) {
 
   return posts.map((p) => ({
     id: p.id, kind: p.kind, skill: p.skill, sub: p.sub, body: p.body, minutes: p.minutes,
-    photo: p.photo, user: p.name || "Member", hue: hueFor(p.user_id), mine: p.user_id === user.id, t: p.t,
+    photo: p.photo, transcript: p.transcript, user: p.name || "Member", hue: hueFor(p.user_id), mine: p.user_id === user.id, t: p.t,
     likes: p.likes, liked: p.liked, comments: byPost[p.id] || [],
   }));
 }

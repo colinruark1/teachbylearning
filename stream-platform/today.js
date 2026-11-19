@@ -67,12 +67,38 @@ function draftFor(h) {
   return (drafts[h.id] ??= { proofType: h.proof.types[0], photo: "", link: "", text: "", details: {}, reflection: "", share: true });
 }
 
+// Handwriting OCR under a proof photo (ocr.js): progress, the transcription in italics,
+// or "No strong OCR" when the writing isn't in clearly defined lines.
+function ocrHTML(ocr) {
+  if (!ocr) return "";
+  if (ocr.status === "running") return `<p class="ocr-status">${esc(ocr.msg)}</p>`;
+  if (ocr.status === "done") return `<p class="transcript">${esc(ocr.text)}</p>`;
+  if (ocr.status === "none") return `<p class="ocr-status">${NO_STRONG_OCR}</p>`;
+  return `<p class="ocr-status">${esc(ocr.msg)}</p>`; // error
+}
+
+// Transcribes the draft's photo in the background. d.ocrJob settles when done, so submit can wait.
+function startOcr(h, d) {
+  const job = {};
+  const show = () => {
+    const el = $(`.checkin[data-habit="${h.id}"] [data-ocr]`);
+    if (el && d.ocrJob === job) el.innerHTML = ocrHTML(d.ocr);
+  };
+  d.ocr = { status: "running", msg: "Reading your handwriting…" };
+  d.ocrJob = job;
+  job.done = transcribeHandwriting(d.photo, (msg) => { if (d.ocrJob === job) { d.ocr.msg = msg; show(); } })
+    .then((r) => r.ok ? { status: "done", text: r.text } : { status: "none" })
+    .catch((e) => ({ status: "error", msg: e.message }))
+    .then((ocr) => { if (d.ocrJob === job) { d.ocr = ocr; show(); } });
+}
+
 function proofInput(h, d) {
   const hint = esc(h.proof[d.proofType]);
   if (d.proofType === "photo") {
     return d.photo
       ? `<div class="proof-photo"><img src="${d.photo}" alt="Your proof photo" />
-           <button type="button" class="btn btn--secondary" data-action="remove-photo">Remove</button></div>`
+           <button type="button" class="btn btn--secondary" data-action="remove-photo">Remove</button></div>
+         ${h.proof.ocr ? `<div data-ocr aria-live="polite">${ocrHTML(d.ocr)}</div>` : ""}`
       : `<button type="button" class="proof-drop" data-action="pick-photo">
            <svg class="ico" viewBox="0 0 20 20" width="22" height="22" aria-hidden="true"><path d="M2 6.5h4L7.5 4h5L14 6.5h4V16H2z"/><circle cx="10" cy="11" r="3"/></svg>
            <span><b>Add a photo</b><br /><span class="muted">${hint}</span></span>
@@ -182,8 +208,10 @@ function renderCards() {
 
 function proofHTML(c) {
   if (c.proofType === "photo") {
+    const ocr = c.transcript ? `<p class="transcript">${esc(c.transcript)}</p>`
+      : c.transcript === "" ? `<p class="ocr-status">${NO_STRONG_OCR}</p>` : "";
     return `<a class="log__photo" href="/api/me/proof/${c.id}" target="_blank" rel="noopener">
-      <img src="/api/me/proof/${c.id}" alt="Proof photo" loading="lazy" /></a>`;
+      <img src="/api/me/proof/${c.id}" alt="Proof photo" loading="lazy" /></a>${ocr}`;
   }
   if (c.proofType === "link") {
     let label = c.proof;
@@ -276,7 +304,9 @@ $("#photoInput").addEventListener("change", async (e) => {
   if (!file || !photoFor) return;
   try {
     const h = habitById(photoFor);
-    draftFor(h).photo = await downscale(file);
+    const d = draftFor(h);
+    d.photo = await downscale(file);
+    if (h.proof.ocr) startOcr(h, d);
     const form = $(`.checkin[data-habit="${photoFor}"]`);
     if (form) refreshProof(form);
   } catch (ex) {
@@ -299,7 +329,12 @@ document.addEventListener("click", async (e) => {
     case "open": openForm(a.dataset.habit); break;
     case "close": openHabit = null; renderCards(); break;
     case "pick-photo": photoFor = form.dataset.habit; $("#photoInput").click(); break;
-    case "remove-photo": draftFor(habitById(form.dataset.habit)).photo = ""; refreshProof(form); break;
+    case "remove-photo": {
+      const d = draftFor(habitById(form.dataset.habit));
+      Object.assign(d, { photo: "", ocr: null, ocrJob: null });
+      refreshProof(form);
+      break;
+    }
     case "share": {
       const c = data.checkins.find((x) => String(x.id) === a.dataset.id);
       a.disabled = true;
@@ -374,6 +409,14 @@ document.addEventListener("submit", async (e) => {
 
   const btn = form.querySelector("[type=submit]");
   btn.disabled = true;
+  if (proof.type === "photo" && d.ocrJob) {
+    // Finish the transcription so it's saved with the check-in: text, or '' for "No strong OCR".
+    if (d.ocr?.status === "running") err.textContent = "Finishing the transcription of your handwriting…";
+    await d.ocrJob.done;
+    err.textContent = "";
+    if (d.ocr?.status === "done") proof.transcript = d.ocr.text;
+    else if (d.ocr?.status === "none") proof.transcript = "";
+  }
   try {
     const saved = await meApi("checkins", {
       method: "POST",

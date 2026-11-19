@@ -226,6 +226,8 @@
 .checkin__share input { margin-top: 3px; accent-color: var(--accent); }
 .checkin__share a, .habit-card__community a { color: var(--accent); }
 .habit-card__community { margin-top: 2px; font-size: 13px; }
+.log__share { margin-top: 6px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+.log__share a { color: var(--accent); }
 .checkin__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .checkin__actions .btn { height: 36px; padding: 0 16px; }
 

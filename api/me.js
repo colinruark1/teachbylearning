@@ -47,7 +47,8 @@ async function getState(user) {
     pool.query(
       `select id, habit, day, proof_type as "proofType",
               case when proof_type = 'photo' then null else proof end as proof,
-              details, reflection, created_at as "createdAt"
+              details, reflection, created_at as "createdAt",
+              (select p.id from community_post p where p.checkin_id = habit_checkin.id) as "postId"
        from habit_checkin where user_id = $1 order by day desc, created_at desc limit 40`, [user.id]),
     pool.query(
       `select distinct day from habit_checkin

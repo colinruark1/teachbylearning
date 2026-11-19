@@ -43,10 +43,11 @@ const when = (t) => {
 };
 
 async function schemaCheck() {
-  const tables = ["habit_commitment", "habit_checkin", "phone_link", "webhook_event", "app_heartbeat", "strava_link"];
+  const tables = ["habit_commitment", "habit_checkin", "phone_link", "webhook_event", "app_heartbeat", "strava_link",
+    "community_post", "community_like", "community_comment"];
   const { rows } = await pool.query(
     `select t, to_regclass(t) is not null as present from unnest($1::text[]) as t`, [tables]);
-  const cols = [["user", "onboardedAt"], ["habit_checkin", "proof_storage"], ["phone_link", "last_inbound_at"]];
+  const cols = [["user", "onboardedAt"], ["habit_checkin", "proof_storage"], ["habit_commitment", "community"], ["phone_link", "last_inbound_at"]];
   const { rows: found } = await pool.query(
     `select table_name || '.' || column_name as c from information_schema.columns
      where (table_name, column_name) in (select * from unnest($1::text[], $2::text[]))`,

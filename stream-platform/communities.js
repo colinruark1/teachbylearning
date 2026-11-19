@@ -212,7 +212,8 @@ function mediaHTML(media) {
         return `<div class="media__item">${
           m.type === "video"
             ? `<video src="${m.src}" controls playsinline preload="metadata"></video>`
-            : `<img src="${m.src}" alt="${esc(m.label || "Uploaded photo")}" loading="lazy" />`
+            : `<button type="button" class="media__open" data-action="view-photo" data-src="${esc(m.src)}" aria-label="View full size">
+                 <img src="${m.src}" alt="${esc(m.label || "Uploaded photo")}" loading="lazy" /></button>`
         }</div>`;
       }
       return `<div class="media__item"><div class="media__placeholder">
@@ -760,6 +761,23 @@ function addRequest(raw) {
   toast(`Requested ${r.name} — ${REQUEST_GOAL - r.votes > 0 ? `${REQUEST_GOAL - r.votes} more to open it` : "it's ready to open"}.`);
 }
 
+// Full-size photo viewer. Grid thumbnails are cropped, so posts open their photos here.
+let photoDialog;
+function openPhoto(src, alt = "") {
+  if (!photoDialog) {
+    photoDialog = document.createElement("dialog");
+    photoDialog.className = "photo-view";
+    photoDialog.innerHTML = `<button type="button" class="photo-view__close" aria-label="Close">×</button><img alt="" />`;
+    // Clicking the backdrop or the close button closes it.
+    photoDialog.addEventListener("click", (e) => { if (e.target !== photoDialog.querySelector("img")) photoDialog.close(); });
+    document.body.append(photoDialog);
+  }
+  const img = photoDialog.querySelector("img");
+  img.src = src;
+  img.alt = alt;
+  photoDialog.showModal();
+}
+
 const toggle = (set, id) => (set.has(id) ? set.delete(id) : set.add(id));
 
 // ---------- Events ----------
@@ -770,6 +788,9 @@ main.addEventListener("click", (e) => {
   const p = id && allPosts().find((x) => x.id === id);
 
   switch (el.dataset.action) {
+    case "view-photo":
+      openPhoto(el.dataset.src, el.querySelector("img")?.alt);
+      break;
     case "watch":
       e.preventDefault();
       toast("The stream player is coming soon.");

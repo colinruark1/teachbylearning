@@ -264,7 +264,7 @@
 .log__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .log__summary { font-weight: 600; }
 .log__extra { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; }
-.log__photo img { max-width: min(100%, 360px); max-height: 260px; border-radius: 8px; object-fit: cover; background: var(--thumb-bg); }
+.log__photo img { display: block; max-width: min(100%, 360px); max-height: 480px; border-radius: 8px; object-fit: contain; background: var(--thumb-bg); }
 .log__link { color: var(--link); font-weight: 600; overflow-wrap: anywhere; }
 .log__link:hover { text-decoration: underline; }
 .log__text summary { color: var(--link); font-weight: 600; cursor: pointer; }

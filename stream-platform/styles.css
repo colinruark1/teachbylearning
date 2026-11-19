@@ -881,6 +881,20 @@ body.side-collapsed #collapseBtn svg { transform: scaleX(-1); }
   object-fit: cover;
 }
 .media__item video { object-fit: contain; background: #000; }
+.media__open { position: absolute; inset: 0; display: block; padding: 0; cursor: zoom-in; }
+/* A single photo is shown whole at its own shape, so a portrait page of writing isn't cropped. */
+.media--1 .media__item:has(.media__open) { aspect-ratio: auto; max-height: none; }
+.media--1 .media__open { position: static; width: 100%; }
+.media--1 .media__open img { position: static; display: block; height: auto; max-height: 75vh; object-fit: contain; }
+
+.photo-view { max-width: 96vw; max-height: 96vh; padding: 0; border: 0; background: transparent; overflow: visible; }
+.photo-view::backdrop { background: rgba(0, 0, 0, .82); }
+.photo-view img { display: block; max-width: 96vw; max-height: 92vh; object-fit: contain; border-radius: 6px; }
+.photo-view__close {
+  position: absolute; top: -14px; right: -14px; width: 34px; height: 34px; border-radius: 50%;
+  background: var(--bg-alt); color: var(--text); font-size: 22px; line-height: 1; box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+}
+@media (max-width: 600px) { .photo-view__close { top: 6px; right: 6px; } }
 .media__placeholder {
   position: absolute;
   inset: 0;
